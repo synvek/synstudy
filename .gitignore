@@ -1,0 +1,17 @@
+# Rust / Cargo
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Large source datasets (download/generate separately, see README)
+/data/ecdict.csv
+/data/ecdict.mini.csv
+/data/stardict.csv
+/data/wordroot.txt
+/data/dicts/
+
+# Built dictionary database (regenerate via scripts/build_dict_db.py)
+/assets/synstudy.db
+
+# OS / editor
+.DS_Store

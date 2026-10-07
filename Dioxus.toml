@@ -1,0 +1,16 @@
+[application]
+name = "synstudy"
+default_platform = "desktop"
+
+# Directory containing bundled assets (stylesheets, images, dictionary db).
+[application.asset_dir]
+path = "assets"
+
+[desktop]
+title = "synstudy - 英语学习工具"
+width = 1180
+height = 800
+min_width = 900
+min_height = 640
+resizable = true
+maximizable = true
