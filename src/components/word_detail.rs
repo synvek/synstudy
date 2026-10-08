@@ -1,12 +1,16 @@
 use dioxus::prelude::*;
 
 use crate::components::{format_exchange, text_lines};
+use crate::db::dict_repo::DictRepo;
 use crate::models::Word;
 
 #[component]
 pub fn WordDetail(word: Word) -> Element {
+    let dict: DictRepo = use_context();
     let tags = word.tag_labels();
     let exchange = format_exchange(&word.exchange);
+    let cefr = word.cefr.clone();
+    let examples = dict.get_examples(word.id, 3);
 
     rsx! {
         div { class: "word-detail",
@@ -14,6 +18,9 @@ pub fn WordDetail(word: Word) -> Element {
                 h2 { class: "wd-word", "{word.word}" }
                 if !word.phonetic.is_empty() {
                     span { class: "wd-phonetic", "{word.phonetic}" }
+                }
+                if word.has_cefr() {
+                    span { class: "wd-cefr", "{cefr}" }
                 }
             }
 
@@ -53,6 +60,23 @@ pub fn WordDetail(word: Word) -> Element {
                     for t in tags.iter() {
                         span { key: "{t}", class: "chip", "{t}" }
                     }
+                }
+            }
+
+            if !examples.is_empty() {
+                div { class: "wd-sec",
+                    h4 { "例句" }
+                    div { class: "wd-examples",
+                        for (i, ex) in examples.iter().enumerate() {
+                            p { key: "{i}", class: "wd-example",
+                                span { class: "wd-example-text", "{ex.text}" }
+                                if !ex.source.is_empty() {
+                                    span { class: "wd-example-src", "— {ex.source}" }
+                                }
+                            }
+                        }
+                    }
+                    p { class: "wd-example-note", "例句来自 Wiktionary（CC BY-SA 4.0）" }
                 }
             }
         }

@@ -11,6 +11,8 @@
 # Sources & licences:
 #   * ECDICT            (skywind3000/ECDICT, MIT)  -> data/ecdict.csv, data/wordroot.txt
 #   * CC-CEDICT         (MDBG, CC-BY-SA 4.0)        -> data/cedict.txt   (真·汉英词典)
+#   * CEFR-J            (openlanguageprofiles/olp-en-cefrj, 需引用署名) -> data/cefrj/*.csv
+#   * Wiktionary/kaikki.org ( kaikki.org-dictionary-English.jsonl, CC BY-SA 4.0) -> data/kaikki.en.jsonl  (例句)
 #   * qwerty-learner    (RealKai42, GPL-3.0)       -> data/dicts/PEPXiaoXue*.json, GaoKao_3500.json
 #   * TEM4/TEM8 lists   (kajweb/dict, word list only; definitions come from MIT ECDICT)
 #
@@ -20,12 +22,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA="$ROOT/data"
 DICTS="$DATA/dicts"
-mkdir -p "$DICTS"
+CEFRJ="$DATA/cefrj"
+mkdir -p "$DICTS" "$CEFRJ"
 
 RAW_ECDICT="https://raw.githubusercontent.com/skywind3000/ECDICT/master"
 RAW_QWERTY="https://raw.githubusercontent.com/RealKai42/qwerty-learner/master/public/dicts"
 RAW_KAJWEB="https://raw.githubusercontent.com/kajweb/dict/master/book"
+RAW_CEFRJ="https://raw.githubusercontent.com/openlanguageprofiles/olp-en-cefrj/master"
 CEDICT_GZ="https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
+KAIKKI="https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl"
 
 fetch() {  # fetch <url> <out>
   local url="$1" out="$2"
@@ -37,11 +42,11 @@ fetch() {  # fetch <url> <out>
   curl -sS -L --retry 3 --retry-delay 2 -o "$out" "$url"
 }
 
-echo "[1/5] ECDICT master dictionary (MIT)"
+echo "[1/7] ECDICT master dictionary (MIT)"
 fetch "$RAW_ECDICT/ecdict.csv"   "$DATA/ecdict.csv"
 fetch "$RAW_ECDICT/wordroot.txt" "$DATA/wordroot.txt"
 
-echo "[2/5] CC-CEDICT Chinese-English dictionary (CC-BY-SA 4.0)"
+echo "[2/7] CC-CEDICT Chinese-English dictionary (CC-BY-SA 4.0)"
 if [[ -s "$DATA/cedict.txt" ]]; then
   echo "  = exists: cedict.txt"
 else
@@ -50,14 +55,27 @@ else
   gunzip -f "$DATA/cedict.txt.gz"
 fi
 
-echo "[3/5] qwerty-learner graded lists (小学 PEP + 高考3500)"
+echo "[3/7] CEFR-J vocabulary profile (A1-C2 levels; requires citation)"
+fetch "$RAW_CEFRJ/cefrj-vocabulary-profile-1.5.csv"         "$CEFRJ/cefrj-vocabulary-profile-1.5.csv"
+fetch "$RAW_CEFRJ/octanove-vocabulary-profile-c1c2-1.0.csv" "$CEFRJ/octanove-vocabulary-profile-c1c2-1.0.csv"
+fetch "$RAW_CEFRJ/README.md"                               "$CEFRJ/olp-en-cefrj-README.md"
+
+echo "[4/7] Wiktionary example sentences (kaikki.org, CC BY-SA 4.0; ~3.1GB)"
+if [[ -s "$DATA/kaikki.en.jsonl" ]]; then
+  echo "  = exists: kaikki.en.jsonl"
+else
+  echo "  -> kaikki.en.jsonl (large; supports resume via -C -)"
+  curl -sS -L --retry 3 --retry-delay 2 -C - -o "$DATA/kaikki.en.jsonl" "$KAIKKI"
+fi
+
+echo "[5/7] qwerty-learner graded lists (小学 PEP + 高考3500)"
 for f in PEPXiaoXue3_1_T PEPXiaoXue3_2_T PEPXiaoXue4_1_T PEPXiaoXue4_2_T \
          PEPXiaoXue5_1_T PEPXiaoXue5_2_T PEPXiaoXue6_1_T PEPXiaoXue6_2_T \
          GaoKao_3500; do
   fetch "$RAW_QWERTY/$f.json" "$DICTS/$f.json"
 done
 
-echo "[4/5] TEM4 / TEM8 syllabus word lists (words only)"
+echo "[6/7] TEM4 / TEM8 syllabus word lists (words only)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 fetch "$RAW_KAJWEB/1521164653685_Level4_2.zip" "$TMP/level4.zip"
@@ -65,7 +83,7 @@ fetch "$RAW_KAJWEB/1521164663794_Level8_2.zip" "$TMP/level8.zip"
 unzip -o -q "$TMP/level4.zip" -d "$TMP/l4"
 unzip -o -q "$TMP/level8.zip" -d "$TMP/l8"
 
-echo "[5/5] Extracting headwords -> data/dicts/tem{4,8}.json"
+echo "[7/7] Extracting headwords -> data/dicts/tem{4,8}.json"
 python3 - "$TMP" "$DICTS" <<'PY'
 import json, os, sys
 tmp, dicts = sys.argv[1], sys.argv[2]

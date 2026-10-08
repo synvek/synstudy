@@ -1,0 +1,37 @@
+CEFR-J Vocabulary Profile — Terms of use (attribution required)
+==============================================================
+
+Source dataset
+--------------
+Open Language Profiles — English datasets from CEFR-J
+https://github.com/openlanguageprofiles/olp-en-cefrj
+
+Used in this project to populate the `words.cefr` column (A1-C2 difficulty
+levels). Files consumed:
+  * cefrj-vocabulary-profile-1.5.csv        (levels A1-B2)
+  * octanove-vocabulary-profile-c1c2-1.0.csv (levels C1/C2)
+
+License / terms (verbatim from the upstream README)
+---------------------------------------------------
+"CEFR-J vocabulary and grammar profile datasets can be used for research and
+commercial purposes with no charge, provided that you cite the dataset
+properly. The copyright belongs to Tono Laboratory at TUFS (Tokyo University
+of Foreign Studies). Neither CEFR-J nor Open Language Profiles is responsible
+or liable for any inaccuracies in the dataset or any damage resulting from
+using the dataset."
+
+"The Octanove Vocabulary Profile for C1/C2 levels can be used under a Creative
+Commons Attribution-ShareAlike 4.0 International License
+(https://creativecommons.org/licenses/by-sa/4.0/)."
+
+How this project complies
+-------------------------
+* Attribution: the CEFR level shown in the dictionary detail panel is credited
+  to CEFR-J; this file records the terms.
+* The C1/C2 supplement (Octanove) is a CC BY-SA 4.0 derivative — if the bundled
+  `assets/synstudy.db` is redistributed, the CEFR annotations derived from it
+  must be shared under CC BY-SA 4.0. This ShareAlike obligation applies to the
+  DATA only; this project's source code remains independently licensed.
+* Citation reference retained:
+    The CEFR-J Wordlist Version 1.5. Compiled by Yukio Tono, Tokyo University
+    of Foreign Studies. Retrieved from http://www.cefr-j.org/download.html

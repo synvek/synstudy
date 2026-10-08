@@ -10,6 +10,8 @@ Cargo.lock
 /data/wordroot.txt
 /data/cedict.txt
 /data/cedict.txt.gz
+/data/cefrj/
+/data/kaikki.en.jsonl
 /data/dicts/
 
 # Built dictionary database (regenerate via scripts/build_dict_db.py)

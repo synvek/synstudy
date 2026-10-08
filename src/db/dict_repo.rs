@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use rusqlite::{Connection, OpenFlags, Row};
 
-use crate::models::{Category, Word, ZhEntry};
+use crate::models::{Category, Example, Word, ZhEntry};
 
 const WORD_COLS: &str = "w.id, w.word, w.phonetic, w.translation, w.definition, \
-                         w.pos, w.tag, w.bnc, w.frq, w.exchange";
+                         w.pos, w.tag, w.bnc, w.frq, w.exchange, w.cefr";
 
 const ZH_COLS: &str = "z.id, z.traditional, z.simplified, z.pinyin, z.glosses";
 
@@ -31,6 +31,7 @@ fn row_to_word(row: &Row) -> rusqlite::Result<Word> {
         bnc: row.get(7)?,
         frq: row.get(8)?,
         exchange: row.get(9)?,
+        cefr: row.get(10)?,
     })
 }
 
@@ -170,6 +171,30 @@ impl DictRepo {
         };
         conn.query_row("SELECT COUNT(*) FROM zh_entries", [], |r| r.get(0))
             .unwrap_or(0)
+    }
+
+    /// Natural example sentences for a word (Wiktionary/kaikki). Returns empty
+    /// when the `examples` table is absent (older databases) or has no rows.
+    pub fn get_examples(&self, word_id: i64, limit: i64) -> Vec<Example> {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let sql = "SELECT e.text, e.source FROM examples e \
+                   WHERE e.word_id = ?1 ORDER BY e.order_index LIMIT ?2";
+        let mut stmt = match conn.prepare(sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt
+            .query_map(rusqlite::params![word_id, limit], |r| {
+                Ok(Example {
+                    text: r.get(0)?,
+                    source: r.get(1)?,
+                })
+            })
+            .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
+        rows.unwrap_or_default()
     }
 
     pub fn get_by_word(&self, word: &str) -> Option<Word> {
@@ -387,6 +412,51 @@ mod tests {
         assert!(py.iter().any(|e| e.simplified == "苹果"));
         // empty / whitespace queries return nothing
         assert!(repo.search_zh("   ", 10).is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Build a throwaway DB with `words` (incl. cefr) + `examples` tables.
+    fn temp_word_repo() -> (DictRepo, PathBuf) {
+        static SEQ: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "synstudy_word_test_{}_{}.db",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_file(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE words (
+                id INTEGER PRIMARY KEY, word TEXT NOT NULL UNIQUE, phonetic TEXT, translation TEXT,
+                definition TEXT, pos TEXT, tag TEXT, bnc INTEGER, frq INTEGER, exchange TEXT, cefr TEXT
+            );
+            CREATE TABLE examples (
+                id INTEGER PRIMARY KEY, word_id INTEGER NOT NULL, text TEXT NOT NULL,
+                source TEXT DEFAULT 'Wiktionary', order_index INTEGER DEFAULT 0
+            );
+            INSERT INTO words (id, word, phonetic, translation, definition, pos, tag, bnc, frq, exchange, cefr)
+                VALUES (1,'apple','','n. 苹果','','','',0,0,'','A1');
+            INSERT INTO examples (word_id, text, source, order_index) VALUES
+                (1,'She ate an apple.','Corpus',0),
+                (1,'An apple a day.',           'proverb',1);",
+        )
+        .unwrap();
+        drop(conn);
+        (DictRepo::new(path.clone()), path)
+    }
+
+    #[test]
+    fn cefr_and_examples_round_trip() {
+        let (repo, path) = temp_word_repo();
+        let w = repo.get_by_word("Apple").expect("word found");
+        assert_eq!(w.cefr, "A1");
+        assert!(w.has_cefr());
+        let ex = repo.get_examples(w.id, 5);
+        assert_eq!(ex.len(), 2);
+        assert_eq!(ex[0].text, "She ate an apple.");
+        assert_eq!(ex[1].source, "proverb");
+        // unknown word id -> empty (and a missing table would also degrade to empty)
+        assert!(repo.get_examples(999, 5).is_empty());
         let _ = std::fs::remove_file(&path);
     }
 }

@@ -160,6 +160,18 @@ h1, h2, h3, h4 { color: var(--text); }
 }
 .chip-link:hover { border-color: var(--primary); background: var(--panel-2); color: var(--text); }
 
+/* ---------------- CEFR level badge + Wiktionary examples ---------------- */
+.wd-cefr {
+  align-self: center; margin-left: auto; font-size: 12px; font-weight: 700;
+  letter-spacing: .5px; padding: 2px 9px; border-radius: 6px;
+  background: var(--primary-soft); color: #cdd4ff; border: 1px solid var(--primary);
+}
+.wd-examples { display: flex; flex-direction: column; gap: 8px; }
+.wd-example { margin: 0; font-size: 15px; line-height: 1.5; padding-left: 12px; border-left: 3px solid var(--primary); }
+.wd-example-text { color: var(--text); }
+.wd-example-src { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.wd-example-note { color: var(--muted); font-size: 11px; margin: 8px 0 0; }
+
 /* ---------------- Categories ---------------- */
 .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .cat-tile {

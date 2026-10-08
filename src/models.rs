@@ -13,6 +13,8 @@ pub struct Word {
     pub bnc: i64,
     pub frq: i64,
     pub exchange: String,
+    /// CEFR-J level (A1..C2), empty when unlabeled. Source: olp-en-cefrj.
+    pub cefr: String,
 }
 
 impl Word {
@@ -34,6 +36,18 @@ impl Word {
         }
         out
     }
+
+    /// Whether a CEFR-J level is present for display.
+    pub fn has_cefr(&self) -> bool {
+        !self.cefr.trim().is_empty()
+    }
+}
+
+/// A natural example sentence for a word, sourced from Wiktionary (kaikki.org).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Example {
+    pub text: String,
+    pub source: String,
 }
 
 /// A Chinese->English dictionary entry (CC-CEDICT), keyed by Chinese headword.

@@ -270,6 +270,68 @@ SAMPLE_CEDICT = [
     "計算機 计算机 [ji4 suan4 ji1] /computer/(Tw) calculator/",
 ]
 
+# A tiny CEFR-J-format sample so the A1-C2 annotation works offline.
+# Header mirrors the real olp-en-cefrj profile (columns: headword,pos,CEFR,...).
+CEFRJ_HEADER = ["headword", "pos", "CEFR", "mode", "can-do"]
+SAMPLE_CEFRJ = [
+    ["apple", "noun", "A1", "written", ""],
+    ["book", "noun", "A1", "written", ""],
+    ["cat", "noun", "A1", "written", ""],
+    ["dog", "noun", "A1", "spoken", ""],
+    ["water", "noun", "A1", "written", ""],
+    ["student", "noun", "A2", "written", ""],
+    ["teacher", "noun", "A2", "written", ""],
+    ["friend", "noun", "A1", "spoken", ""],
+    ["environment", "noun", "B1", "written", ""],
+    ["achieve", "verb", "B1", "written", ""],
+    ["opportunity", "noun", "B2", "written", ""],
+    ["abandon", "verb", "B2", "written", ""],
+    ["hypothesis", "noun", "C1", "written", ""],
+    ["ubiquitous", "adjective", "C2", "written", ""],
+]
+# C1/C2 supplement (Octanove profile) merged into the same `cefr` column.
+SAMPLE_CEFRJ_C1C2 = [
+    ["esoteric", "adjective", "C2", "written", ""],
+    ["paradigm", "noun", "C1", "written", ""],
+]
+
+# A tiny Wiktionary (kaikki.org)-format sample so 例句 works offline.
+# Each record is one JSON object per line: {word, lang, senses:[{examples:[{text,ref}]}]}.
+SAMPLE_KAIKKI = [
+    {"word": "apple", "lang": "English", "senses": [
+        {"examples": [
+            {"text": "She bit into the crisp red apple."},
+            {"text": "An apple a day keeps the doctor away.", "ref": "proverb"}]}]},
+    {"word": "book", "lang": "English", "senses": [
+        {"examples": [
+            {"text": "He read a book before bed.", "ref": "Corpus of Contemporary American English"},
+            {"text": "She booked a table for two."}]}]},
+    {"word": "water", "lang": "English", "senses": [
+        {"examples": [
+            {"text": "Pour some water into the glass."},
+            {"text": "The river was polluted with dirty water."}]}]},
+    {"word": "student", "lang": "English", "senses": [
+        {"examples": [
+            {"text": "Every student must wear an ID badge.", "ref": "New York Times"},
+            {"text": "She is a graduate student in physics."}]}]},
+    {"word": "achieve", "lang": "English", "senses": [
+        {"examples": [
+            {"text": "With hard work you can achieve your goals."},
+            {"text": "The team achieved a remarkable victory."}]}]},
+    {"word": "environment", "lang": "English", "senses": [
+        {"examples": [
+            {"text": "We must protect the environment for future generations.", "ref": "BBC"},
+            {"text": "A clean environment improves productivity."}]}]},
+    {"word": "abandon", "lang": "English", "senses": [
+        {"examples": [
+            {"text": "They had to abandon the car in the snow."},
+            {"text": "He abandoned his studies for a year."}]}]},
+    {"word": "ubiquitous", "lang": "English", "senses": [
+        {"examples": [
+            {"text": "Smartphones have become ubiquitous in modern life."},
+            {"text": "Advertising is ubiquitous on the internet."}]}]},
+]
+
 
 def main():
     os.makedirs(DICTS, exist_ok=True)
@@ -339,6 +401,28 @@ def main():
         for line in SAMPLE_CEDICT:
             f.write(line + "\n")
     print("  {} ({} entries)".format(cedict_path, len(SAMPLE_CEDICT)))
+
+    # --- data/cefrj/*.csv (CEFR-J format, sample subset) ---
+    cefrj_dir = os.path.join(DATA, "cefrj")
+    os.makedirs(cefrj_dir, exist_ok=True)
+    cefrj_path = os.path.join(cefrj_dir, "cefrj-vocabulary-profile-1.5.csv")
+    with open(cefrj_path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(CEFRJ_HEADER)
+        w.writerows(SAMPLE_CEFRJ)
+    oct_path = os.path.join(cefrj_dir, "octanove-vocabulary-profile-c1c2-1.0.csv")
+    with open(oct_path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(CEFRJ_HEADER)
+        w.writerows(SAMPLE_CEFRJ_C1C2)
+    print("  {} ({} rows) + octanove c1c2".format(cefrj_path, len(SAMPLE_CEFRJ)))
+
+    # --- data/kaikki.en.jsonl (Wiktionary/kaikki format, sample subset) ---
+    kaikki_path = os.path.join(DATA, "kaikki.en.jsonl")
+    with open(kaikki_path, "w", encoding="utf-8") as f:
+        for rec in SAMPLE_KAIKKI:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    print("  {} ({} records)".format(kaikki_path, len(SAMPLE_KAIKKI)))
 
 
 if __name__ == "__main__":

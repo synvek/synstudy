@@ -61,7 +61,8 @@ CREATE TABLE words (
     tag         TEXT DEFAULT '',
     bnc         INTEGER DEFAULT 0,
     frq         INTEGER DEFAULT 0,
-    exchange    TEXT DEFAULT ''
+    exchange    TEXT DEFAULT '',
+    cefr        TEXT DEFAULT ''
 );
 CREATE INDEX idx_words_word ON words(word);
 
@@ -96,10 +97,22 @@ CREATE TABLE zh_entries (
 CREATE INDEX idx_zh_simplified ON zh_entries(simplified);
 CREATE INDEX idx_zh_traditional ON zh_entries(traditional);
 CREATE INDEX idx_zh_pinyin ON zh_entries(pinyin_plain);
+
+CREATE TABLE examples (
+    id          INTEGER PRIMARY KEY,
+    word_id     INTEGER NOT NULL,
+    text        TEXT NOT NULL,
+    source      TEXT DEFAULT 'Wiktionary',
+    order_index INTEGER DEFAULT 0
+);
+CREATE INDEX idx_examples_word ON examples(word_id);
 """
 
 # CC-CEDICT line:  Trad Simp [pin1 yin1] /gloss/gloss/
 CEDICT_RE = re.compile(r'^(\S+)\s+(\S+)\s+\[([^\]]+)\]\s+/(.*)$')
+
+# CEFR ordering; lower rank == earlier-learnable level.
+CEFR_RANK = {"A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5, "C2": 6}
 
 
 def pinyin_plain(py):
@@ -262,6 +275,120 @@ def build_zh_entries(conn, cedict_path):
     return n
 
 
+def apply_cefr(conn, paths):
+    """Annotate `words.cefr` with the earliest CEFR-J level (A1..C2).
+
+    Reads CEFR-J vocabulary profile CSVs (columns: headword,pos,CEFR,...),
+    splits alternative headword spellings on '/', and gives each dictionary
+    word the *lowest* (earliest-learnable) level observed. Returns
+    (annotations, words_updated).
+    """
+    best = {}  # lower variant -> rank
+    for p in paths:
+        if not os.path.exists(p):
+            print("  [warn] CEFR file missing: {}".format(p))
+            continue
+        with open(p, "r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                hw = (row.get("headword") or "").strip()
+                lvl = (row.get("CEFR") or "").strip().upper()
+                if not hw or lvl not in CEFR_RANK:
+                    continue
+                rank = CEFR_RANK[lvl]
+                for variant in hw.split("/"):
+                    v = variant.strip().lower()
+                    if not v:
+                        continue
+                    if v not in best or rank < best[v]:
+                        best[v] = rank
+    if not best:
+        return 0, 0
+    inv = {r: l for l, r in CEFR_RANK.items()}
+    cur = conn.cursor()
+    by_lower = {}
+    cur.execute("SELECT id, word FROM words")
+    for wid, w in cur.fetchall():
+        key = w.strip().lower()
+        by_lower.setdefault(key, wid)
+    updated = 0
+    for v, rank in best.items():
+        wid = by_lower.get(v)
+        if wid is None:
+            continue
+        cur.execute("UPDATE words SET cefr = ? WHERE id = ?", (inv[rank], wid))
+        updated += 1
+    conn.commit()
+    return len(best), updated
+
+
+# Max example sentences kept per headword (the graded banks are the target).
+MAX_EX_PER_WORD = 3
+
+
+def build_examples(conn, kaikki_path, max_per_word=MAX_EX_PER_WORD):
+    """Extract Wiktionary (kaikki.org) example sentences for words that appear
+    in the graded category word banks.
+
+    Streams the ~3GB `kaikki.org-dictionary-English.jsonl` and, for each English
+    headword that belongs to a study bank, keeps up to `max_per_word` clean
+    natural sentences. Restricting to the graded banks (instead of all 770k
+    dictionary words) keeps the `examples` table small while covering exactly
+    the vocabulary learners study. Returns the number of rows inserted.
+    """
+    if not os.path.exists(kaikki_path):
+        print("  [warn] {} not found; \u4f8b\u53e5\u5c06\u4e3a\u7a7a\uff08\u8fd0\u884c scripts/fetch_data.sh \u4e0b\u8f7d kaikki\uff09".format(kaikki_path))
+        return 0
+    import json
+    cur = conn.cursor()
+    # Target = distinct headwords that belong to at least one category.
+    cur.execute(
+        "SELECT DISTINCT w.id, LOWER(w.word) FROM category_words cw "
+        "JOIN words w ON w.id = cw.word_id")
+    targets = {}
+    for wid, lw in cur.fetchall():
+        if lw:
+            targets.setdefault(lw, wid)
+    if not targets:
+        return 0
+    kept = {}  # word_id -> count kept so far
+    n = 0
+    with open(kaikki_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or not line.startswith("{"):
+                continue
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            if o.get("lang") != "English":
+                continue
+            w = (o.get("word") or "").strip().lower()
+            wid = targets.get(w)
+            if wid is None or kept.get(wid, 0) >= max_per_word:
+                continue
+            for sense in o.get("senses", []):
+                for ex in sense.get("examples", []):
+                    text = (ex.get("text") or "").strip()
+                    # Skip short/boilerplate or template-leftover fragments.
+                    if len(text) < 8 or "{" in text or "}" in text:
+                        continue
+                    ref = (ex.get("ref") or "").strip()
+                    cur.execute(
+                        "INSERT INTO examples (word_id, text, source, order_index) "
+                        "VALUES (?,?,?,?)",
+                        (wid, text, ref, kept.get(wid, 0)))
+                    kept[wid] = kept.get(wid, 0) + 1
+                    n += 1
+                    if kept[wid] >= max_per_word:
+                        break
+                if kept.get(wid, 0) >= max_per_word:
+                    break
+    conn.commit()
+    return n
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default=os.path.join(ROOT, "data"))
@@ -313,12 +440,29 @@ def main():
     zh_n = build_zh_entries(conn, cedict_path)
     print("  inserted {} Chinese-English entries".format(zh_n))
 
+    cefr_paths = [
+        os.path.join(args.data_dir, "cefrj", "cefrj-vocabulary-profile-1.5.csv"),
+        os.path.join(args.data_dir, "cefrj", "octanove-vocabulary-profile-c1c2-1.0.csv"),
+    ]
+    print("Applying CEFR-J levels ...")
+    cefr_seen, cefr_updated = apply_cefr(conn, cefr_paths)
+    print("  {} annotations, {} words tagged".format(cefr_seen, cefr_updated))
+
+    kaikki_path = os.path.join(args.data_dir, "kaikki.en.jsonl")
+    print("Building examples (Wiktionary) from {} ...".format(kaikki_path))
+    ex_n = build_examples(conn, kaikki_path)
+    print("  inserted {} example sentences".format(ex_n))
+
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("word_total", str(total_words)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("zh_total", str(zh_n)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
-                ("schema_version", "2"))
+                ("cefr_tagged", str(cefr_updated)))
+    cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
+                ("example_total", str(ex_n)))
+    cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
+                ("schema_version", "4"))
     conn.commit()
     conn.close()
 

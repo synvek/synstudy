@@ -7,6 +7,8 @@
 | --- | --- | --- | --- |
 | [ECDICT](https://github.com/skywind3000/ECDICT) | `words` 表：英汉释义、音标、词形变化、词频、考试标签 | MIT | [`ECDICT-LICENSE.txt`](./ECDICT-LICENSE.txt) |
 | [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cc-cedict) | `zh_entries` 表：汉英词典（中文主键 / 拼音 / 繁体 / 英文释义） | CC-BY-SA 4.0 | [`CC-CEDICT-LICENSE.txt`](./CC-CEDICT-LICENSE.txt) |
+| [Wiktionary / kaikki.org](https://kaikki.org/dictionary/English/) | `examples` 表：分级词库词汇的自然例句 | CC BY-SA 4.0 | [`Wiktionary-kaikki-LICENSE.txt`](./Wiktionary-kaikki-LICENSE.txt) |
+| [CEFR-J](https://github.com/openlanguageprofiles/olp-en-cefrj) | `words.cefr` 列：A1–C2 难度等级标注 | 免费商用**须引用**（C1/C2 部分 CC BY-SA 4.0） | [`CEFR-J-NOTICE.txt`](./CEFR-J-NOTICE.txt) |
 | [qwerty-learner](https://github.com/RealKai42/qwerty-learner) | 小学（人教版 PEP）分级词表 | GPL-3.0 | [`qwerty-learner-LICENSE.txt`](./qwerty-learner-LICENSE.txt) |
 | [kajweb/dict](https://github.com/kajweb/dict) | 专四 / 专八词表（**仅英文单词**） | 无开源许可证（见下方说明） | 无 |
 
@@ -24,6 +26,16 @@ Copyright (c) 2025 Linwei。MIT 许可，允许自由使用、修改与再分发
 ### qwerty-learner（GPL-3.0）
 小学 PEP 词表来自 GPL-3.0 项目。本项目仅将其用于**本地构建**个人词典库；
 若要再分发应用，请自行核实 GPL-3.0 的合规义务。
+
+### Wiktionary / kaikki.org（CC BY-SA 4.0）
+`examples` 表的例句由 kaikki.org 从 Wiktionary 提取，属 CC BY-SA 4.0。
+- **署名（BY）**：词典详情面板例句处标注「例句来自 Wiktionary（CC BY-SA 4.0）」。
+- **相同方式共享（SA）**：若对外分发含例句的 `assets/synstudy.db`，该演绎数据须以 CC BY-SA 4.0 共享；SA 仅约束**数据**，不影响本项目源码。
+
+### CEFR-J（须引用署名；C1/C2 为 CC BY-SA 4.0）
+`words.cefr` 等级来自 CEFR-J 词库档案，版权归属东京外国语大学户田研。
+- 可免费用于研究与**商用**，前提是**正确引用**数据集（详见 `CEFR-J-NOTICE.txt`）。
+- 其中 C1/C2 补充（Octanove）以 CC BY-SA 4.0 发布，再分发时同样适用数据层面的 SA 义务。
 
 ### kajweb/dict（无许可证）
 该仓库**未提供开源许可证**，且数据源自有道（专有）。因此本项目：
