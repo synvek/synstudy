@@ -36,6 +36,80 @@ impl Word {
     }
 }
 
+/// A Chinese->English dictionary entry (CC-CEDICT), keyed by Chinese headword.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ZhEntry {
+    pub id: i64,
+    pub traditional: String,
+    pub simplified: String,
+    pub pinyin: String,
+    /// Raw glosses joined by '/', e.g. `apple/CL:個|个[ge4]/FIG. idiom/`.
+    pub glosses: String,
+}
+
+impl ZhEntry {
+    /// Individual gloss segments with blanks removed.
+    pub fn gloss_list(&self) -> Vec<&str> {
+        self.glosses
+            .split('/')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
+    /// English headword candidates for cross-linking back to the ECDICT
+    /// (英汉) dictionary. CEDICT meta segments (`CL:` classifiers, `see …`,
+    /// `FIG. …`, regional `(Tw)` markers, etc.) are skipped; for each remaining
+    /// gloss the first meaningful alphabetic token is taken and de-duplicated.
+    pub fn english_heads(&self) -> Vec<String> {
+        // Articles/prepositions that never stand alone as a headword.
+        const STOP: &[&str] = &[
+            "to", "a", "an", "the", "of", "in", "on", "for", "and", "or", "with", "by",
+            "from", "at",
+        ];
+        // Whole-segment meta prefixes to ignore.
+        const SKIP_PREFIX: &[&str] = &[
+            "cl:", "see ", "also ", "old ", "variant", "erhua", "abbr", "loanword",
+            "phonetic", "used ", "fig", "tw ", "prc",
+        ];
+        let mut out: Vec<String> = Vec::new();
+        'seg: for seg in self.gloss_list() {
+            let mut s = seg.trim();
+            // Drop a leading parenthetical marker such as "(Tw)" / "(coll.)".
+            if s.starts_with('(') {
+                if let Some(idx) = s.find(')') {
+                    s = s[idx + 1..].trim_start();
+                }
+            }
+            let head = s.to_lowercase();
+            for p in SKIP_PREFIX {
+                if head.starts_with(p) {
+                    continue 'seg;
+                }
+            }
+            // First alphabetic token that is not a stopword.
+            let mut token = String::new();
+            for ch in s.chars() {
+                if ch.is_ascii_alphabetic() {
+                    token.push(ch.to_ascii_lowercase());
+                } else if !token.is_empty() {
+                    if token.len() >= 2 && !STOP.contains(&token.as_str()) {
+                        break;
+                    }
+                    token.clear();
+                }
+            }
+            if token.len() >= 2 && !STOP.contains(&token.as_str()) && !out.contains(&token) {
+                out.push(token);
+            }
+            if out.len() >= 8 {
+                break;
+            }
+        }
+        out
+    }
+}
+
 /// A vocabulary list (graded word bank).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Category {

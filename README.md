@@ -2,7 +2,7 @@
 
 一个使用 **Rust + Dioxus** 构建的**纯客户端、离线优先**桌面英语学习工具（macOS / Windows / Linux）。
 
-内置**英汉词典**与**分级词库**（小学 / 初中 / 高中 / 四级 / 六级 / 专四 / 专八 / 托福 / GRE），支持**学习模式**与基于**间隔重复（SRS）**的**背诵 / 复习模式**，并记录本地学习进度与统计。
+内置**英汉 / 汉英双向词典**与**分级词库**（小学 / 初中 / 高中 / 四级 / 六级 / 专四 / 专八 / 托福 / GRE），支持**学习模式**与基于**间隔重复（SRS）**的**背诵 / 复习模式**，并记录本地学习进度与统计。
 
 > 词典数据经一次性构建脚本预处理为**只读 SQLite**，随应用打包；用户学习进度写入本地**可写 SQLite**（应用数据目录）。**无后端、无网络依赖**。
 
@@ -11,6 +11,7 @@
 ## 功能特性
 
 - **英汉词典查询**：前缀 / 精确检索，展示音标、中文释义、英文释义、词性、词形变化（exchange）、考试标签、词频（BNC / 柯林斯）。
+- **汉英词典查询**：基于 **CC-CEDICT**（真正以中文词为主键的汉英词典），支持**中文 / 拼音 / 繁体**检索，按「精确词条 → 前缀 → 子串」排序，覆盖成语、复合词与专有名词；详情面板可将英文释义**回链到英汉词典**（点击查看音标 / 词频 / 考试标签）。词典页顶部一键切换英汉 / 汉英方向。
 - **分级词库浏览**：9 大分类，显示词条数与学习进度百分比。
 - **学习模式**：按词库原始顺序逐词卡片学习，翻面查看释义，标记「认识 / 不认识」，进度实时持久化。
 - **背诵 / 复习模式（SRS）**：SM-2 lite 算法，四档自评（重来 / 困难 / 良好 / 轻松）自动排期，仅拉取到期词组成复习队列。
@@ -41,9 +42,11 @@ synstudy/
 │   ├── main.css              # 全局样式（构建时内联注入）
 │   └── synstudy.db           # 构建产物：只读词典库（打包进应用）
 ├── data/                     # 源数据（git 忽略大文件）
-│   ├── ecdict.csv            # ECDICT 主词典
+│   ├── ecdict.csv            # ECDICT 主词典（英汉）
+│   ├── cedict.txt            # CC-CEDICT 汉英词典（中文主键）
 │   ├── wordroot.txt          # ECDICT 词根词缀（后期词根功能预留）
 │   └── dicts/*.json          # 分级词库（小学 PEP / 专四 / 专八 等）
+├── license/                  # 外部词典数据的许可证条款文本 + 合规说明
 ├── scripts/
 │   ├── fetch_data.sh         # 一键下载全部源数据（遵循 http(s)_proxy）
 │   ├── gen_sample_data.py    # 生成样例源数据（完全离线时的回退方案）
@@ -51,7 +54,7 @@ synstudy/
 └── src/
     ├── main.rs               # dioxus::launch(App)
     ├── app.rs                # 根组件 + 导航壳 + 全局 Context Provider
-    ├── models.rs             # Word / Category / WordProgress / ProgressStatus
+    ├── models.rs             # Word / ZhEntry / Category / WordProgress / ProgressStatus
     ├── state.rs              # Page / Settings / 时间工具
     ├── srs.rs                # SM-2 lite 间隔重复算法（含单元测试）
     ├── db/
@@ -89,6 +92,7 @@ bash scripts/fetch_data.sh
 | 数据 | 来源 | 用途 |
 | --- | --- | --- |
 | `ecdict.csv`（~63MB，77 万词条）+ `wordroot.txt` | [ECDICT](https://github.com/skywind3000/ECDICT)（MIT） | 主词典：音标 / 双解释义 / 词形变化 / 词频 / 考试标签 |
+| `cedict.txt`（~10MB，12.5 万词条） | [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cc-cedict)（CC-BY-SA 4.0） | **汉英词典**：中文主键 + 拼音 + 繁体 + 英文释义 |
 | `PEPXiaoXue*.json`、`GaoKao_3500.json` | [qwerty-learner](https://github.com/RealKai42/qwerty-learner)（GPL-3.0） | 小学（人教版）分级词表 |
 | 专四 / 专八词表 | [kajweb/dict](https://github.com/kajweb/dict)（**仅提取英文单词**） | 专四 / 专八选词与词序；释义、音标一律取自 MIT 的 ECDICT |
 
@@ -110,7 +114,7 @@ python3 scripts/build_dict_db.py
 
 脚本会读取 `data/` 下的源数据，产出只读词典库 `assets/synstudy.db`，并打印各分类词条数校验。
 
-使用完整 ECDICT 构建的典型结果（约 104MB）：
+使用完整 ECDICT + CC-CEDICT 构建的典型结果（约 121MB）：
 
 ```
   inserted 770611 word rows
@@ -123,6 +127,7 @@ python3 scripts/build_dict_db.py
   tem8       英语专业八级    12197 words
   toefl      托福         6974 words
   gre        GRE        7504 words
+  inserted 125215 Chinese-English entries   # 汉英 (zh_entries)
 ```
 
 常用参数：
@@ -190,7 +195,11 @@ cargo test                  # SRS 排期算法单元测试
 
 ## 数据来源与授权
 
-- **ECDICT**（`github.com/skywind3000/ECDICT`，**MIT**）：主词典，提供音标 / 中英双解 / 词形变化 / 词频 / 考试标签（`zk/gk/cet4/cet6/ky/toefl/ielts/gre`）。本项目的释义与音标内容均来源于此。
+> 各外部词典的**完整许可证条款文本**已收录于 [`license/`](./license/) 目录，详见 [`license/README.md`](./license/README.md)。
+
+- **ECDICT**（`github.com/skywind3000/ECDICT`，**MIT**）：主词典，提供音标 / 中英双解 / 词形变化 / 词频 / 考试标签（`zk/gk/cet4/cet6/ky/toefl/ielts/gre`）。本项目的英汉释义与音标内容均来源于此。
+- **CC-CEDICT**（`www.mdbg.net`，**CC-BY-SA 4.0**）：汉英词典数据源，以中文词为主键，提供简体 / 繁体 / 拼音 / 英文释义（约 12.5 万条）。
+  - ⚠️ CC-BY-SA 4.0 要求**署名**并对**数据演绎作品采用相同许可共享**。本项目在词典详情中标注来源；打包的 `assets/synstudy.db` 中 `zh_entries` 表数据须以 CC-BY-SA 4.0 共享（应用**代码**不受此约束，仍独立许可）。
 - **qwerty-learner**（`github.com/RealKai42/qwerty-learner`，**GPL-3.0**）：小学（人教版 PEP）分级词表。JSON 格式 `{name, trans, usphone, ukphone}`。
   - ⚠️ GPL-3.0 为传染性许可。本项目仅将其词表用于**本地构建**个人词典库；若要再分发应用，请自行核实 GPL 合规义务。
 - **专四 / 专八词表**（`github.com/kajweb/dict`，数据源自有道）：该仓库**无开源许可证**，故本项目**仅提取其中的英文单词（`headWord`）作为选词与排序依据**，不复制其释义 / 例句 / 音标等专有内容——这些一律改由 MIT 的 ECDICT 提供。单词本身属事实性数据。
@@ -211,4 +220,4 @@ cargo test                  # SRS 排期算法单元测试
 
 ## 许可
 
-代码部分可自由使用。词典数据遵循其各自来源的许可（ECDICT 为 MIT；qwerty-learner 以其仓库 LICENSE 为准）。
+代码部分可自由使用。词典数据遵循其各自来源的许可（英汉 ECDICT 为 MIT；汉英 CC-CEDICT 为 CC-BY-SA 4.0，其数据演绎须相同方式共享；qwerty-learner 以其仓库 GPL-3.0 为准）。

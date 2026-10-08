@@ -249,6 +249,27 @@ ENTRIES = [
     ("acrimonious", "/ˌækrɪˈməʊniəs/", "adj. 尖酸的", "bitter in tone", "adj:100", "tem8"),
 ]
 
+# A tiny CC-CEDICT-format sample so 汉英 (Chinese->English) lookups work offline.
+# Line format:  Traditional Simplified [pin1 yin1] /gloss/gloss/
+# Replace with the real data/cedict.txt (see scripts/fetch_data.sh) for production.
+SAMPLE_CEDICT = [
+    "蘋果 苹果 [ping2 guo3] /apple/CL:個|个[ge4]/",
+    "書 书 [shu1] /book/CL:本[ben3]/to write/",
+    "貓 猫 [mao1] /cat/CL:隻|只[zhi1]/",
+    "狗 狗 [gou3] /dog/CL:條|条[tiao2]/",
+    "水 水 [shui3] /water/CL:杯[bei1]/",
+    "學生 学生 [xue2 sheng1] /student/schoolperson/CL:個|个[ge4]/",
+    "老師 老师 [lao3 shi1] /teacher/CL:個|个[ge4]/",
+    "學習 学习 [xue2 xi2] /to learn/to study/",
+    "美麗 美丽 [mei3 li4] /beautiful/",
+    "放棄 放弃 [fang4 qi4] /to renounce/to abandon/to give up/",
+    "能力 能力 [neng2 li4] /ability/capability/CL:個|个[ge4]/",
+    "環境 环境 [huan2 jing4] /environment/surroundings/",
+    "機會 机会 [ji1 hui4] /opportunity/chance/",
+    "知識 知识 [zhi1 shi5] /knowledge/intellect/",
+    "計算機 计算机 [ji4 suan4 ji1] /computer/(Tw) calculator/",
+]
+
 
 def main():
     os.makedirs(DICTS, exist_ok=True)
@@ -309,6 +330,15 @@ def main():
         if source == "json":
             n = sum(1 for wd in order if key in cats_of[wd])
             print("  data/dicts/{}.json ({} words)".format(key, n))
+
+    # --- data/cedict.txt (CC-CEDICT format, sample subset) ---
+    cedict_path = os.path.join(DATA, "cedict.txt")
+    with open(cedict_path, "w", encoding="utf-8") as f:
+        f.write("# CC-CEDICT (sample subset for offline demo)\n")
+        f.write("#! license=https://creativecommons.org/licenses/by-sa/4.0/\n")
+        for line in SAMPLE_CEDICT:
+            f.write(line + "\n")
+    print("  {} ({} entries)".format(cedict_path, len(SAMPLE_CEDICT)))
 
 
 if __name__ == "__main__":

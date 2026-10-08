@@ -22,6 +22,7 @@ import argparse
 import csv
 import glob
 import os
+import re
 import sqlite3
 import sys
 
@@ -83,7 +84,27 @@ CREATE TABLE meta (
     key   TEXT PRIMARY KEY,
     value TEXT
 );
+
+CREATE TABLE zh_entries (
+    id           INTEGER PRIMARY KEY,
+    traditional  TEXT NOT NULL,
+    simplified   TEXT NOT NULL,
+    pinyin       TEXT DEFAULT '',
+    pinyin_plain TEXT DEFAULT '',
+    glosses      TEXT DEFAULT ''
+);
+CREATE INDEX idx_zh_simplified ON zh_entries(simplified);
+CREATE INDEX idx_zh_traditional ON zh_entries(traditional);
+CREATE INDEX idx_zh_pinyin ON zh_entries(pinyin_plain);
 """
+
+# CC-CEDICT line:  Trad Simp [pin1 yin1] /gloss/gloss/
+CEDICT_RE = re.compile(r'^(\S+)\s+(\S+)\s+\[([^\]]+)\]\s+/(.*)$')
+
+
+def pinyin_plain(py):
+    """Lowercase pinyin with tone numbers/spaces removed, for romaji search."""
+    return re.sub(r'[^a-z]', '', py.lower())
 
 
 def to_int(v):
@@ -215,6 +236,32 @@ def build_tag_category(conn, cat, ids):
     return len(rows)
 
 
+def build_zh_entries(conn, cedict_path):
+    """Parse CC-CEDICT into the zh_entries (真·汉英) table. Returns row count."""
+    if not os.path.exists(cedict_path):
+        print("  [warn] {} not found; 汉英词典将为空（运行 scripts/fetch_data.sh 下载）".format(cedict_path))
+        return 0
+    cur = conn.cursor()
+    n = 0
+    with open(cedict_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip() or line.startswith("#"):
+                continue
+            m = CEDICT_RE.match(line.rstrip("\n"))
+            if not m:
+                continue
+            trad, simp, py, defs = m.group(1), m.group(2), m.group(3), m.group(4)
+            segs = [s.strip() for s in defs.split("/") if s.strip()]
+            glosses = "/".join(segs)
+            cur.execute(
+                "INSERT INTO zh_entries "
+                "(traditional, simplified, pinyin, pinyin_plain, glosses) VALUES (?,?,?,?,?)",
+                (trad, simp, py, pinyin_plain(py), glosses))
+            n += 1
+    conn.commit()
+    return n
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default=os.path.join(ROOT, "data"))
@@ -260,10 +307,18 @@ def main():
 
     cur.execute("SELECT COUNT(*) FROM words")
     total_words = cur.fetchone()[0]
+
+    cedict_path = os.path.join(args.data_dir, "cedict.txt")
+    print("Building 汉英 (zh_entries) from {} ...".format(cedict_path))
+    zh_n = build_zh_entries(conn, cedict_path)
+    print("  inserted {} Chinese-English entries".format(zh_n))
+
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("word_total", str(total_words)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
-                ("schema_version", "1"))
+                ("zh_total", str(zh_n)))
+    cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
+                ("schema_version", "2"))
     conn.commit()
     conn.close()
 

@@ -10,6 +10,7 @@
 #
 # Sources & licences:
 #   * ECDICT            (skywind3000/ECDICT, MIT)  -> data/ecdict.csv, data/wordroot.txt
+#   * CC-CEDICT         (MDBG, CC-BY-SA 4.0)        -> data/cedict.txt   (真·汉英词典)
 #   * qwerty-learner    (RealKai42, GPL-3.0)       -> data/dicts/PEPXiaoXue*.json, GaoKao_3500.json
 #   * TEM4/TEM8 lists   (kajweb/dict, word list only; definitions come from MIT ECDICT)
 #
@@ -24,6 +25,7 @@ mkdir -p "$DICTS"
 RAW_ECDICT="https://raw.githubusercontent.com/skywind3000/ECDICT/master"
 RAW_QWERTY="https://raw.githubusercontent.com/RealKai42/qwerty-learner/master/public/dicts"
 RAW_KAJWEB="https://raw.githubusercontent.com/kajweb/dict/master/book"
+CEDICT_GZ="https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
 
 fetch() {  # fetch <url> <out>
   local url="$1" out="$2"
@@ -35,18 +37,27 @@ fetch() {  # fetch <url> <out>
   curl -sS -L --retry 3 --retry-delay 2 -o "$out" "$url"
 }
 
-echo "[1/4] ECDICT master dictionary (MIT)"
+echo "[1/5] ECDICT master dictionary (MIT)"
 fetch "$RAW_ECDICT/ecdict.csv"   "$DATA/ecdict.csv"
 fetch "$RAW_ECDICT/wordroot.txt" "$DATA/wordroot.txt"
 
-echo "[2/4] qwerty-learner graded lists (小学 PEP + 高考3500)"
+echo "[2/5] CC-CEDICT Chinese-English dictionary (CC-BY-SA 4.0)"
+if [[ -s "$DATA/cedict.txt" ]]; then
+  echo "  = exists: cedict.txt"
+else
+  echo "  -> cedict.txt"
+  curl -sS -L --retry 3 --retry-delay 2 -o "$DATA/cedict.txt.gz" "$CEDICT_GZ"
+  gunzip -f "$DATA/cedict.txt.gz"
+fi
+
+echo "[3/5] qwerty-learner graded lists (小学 PEP + 高考3500)"
 for f in PEPXiaoXue3_1_T PEPXiaoXue3_2_T PEPXiaoXue4_1_T PEPXiaoXue4_2_T \
          PEPXiaoXue5_1_T PEPXiaoXue5_2_T PEPXiaoXue6_1_T PEPXiaoXue6_2_T \
          GaoKao_3500; do
   fetch "$RAW_QWERTY/$f.json" "$DICTS/$f.json"
 done
 
-echo "[3/4] TEM4 / TEM8 syllabus word lists (words only)"
+echo "[4/5] TEM4 / TEM8 syllabus word lists (words only)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 fetch "$RAW_KAJWEB/1521164653685_Level4_2.zip" "$TMP/level4.zip"
@@ -54,7 +65,7 @@ fetch "$RAW_KAJWEB/1521164663794_Level8_2.zip" "$TMP/level8.zip"
 unzip -o -q "$TMP/level4.zip" -d "$TMP/l4"
 unzip -o -q "$TMP/level8.zip" -d "$TMP/l8"
 
-echo "[4/4] Extracting headwords -> data/dicts/tem{4,8}.json"
+echo "[5/5] Extracting headwords -> data/dicts/tem{4,8}.json"
 python3 - "$TMP" "$DICTS" <<'PY'
 import json, os, sys
 tmp, dicts = sys.argv[1], sys.argv[2]

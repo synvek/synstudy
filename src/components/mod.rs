@@ -3,6 +3,7 @@ pub mod nav_bar;
 pub mod progress_bar;
 pub mod word_card;
 pub mod word_detail;
+pub mod zh_detail;
 
 use dioxus::prelude::*;
 

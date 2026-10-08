@@ -2,10 +2,12 @@ use std::path::PathBuf;
 
 use rusqlite::{Connection, OpenFlags, Row};
 
-use crate::models::{Category, Word};
+use crate::models::{Category, Word, ZhEntry};
 
 const WORD_COLS: &str = "w.id, w.word, w.phonetic, w.translation, w.definition, \
                          w.pos, w.tag, w.bnc, w.frq, w.exchange";
+
+const ZH_COLS: &str = "z.id, z.traditional, z.simplified, z.pinyin, z.glosses";
 
 /// Read-only access to the bundled dictionary database.
 ///
@@ -29,6 +31,16 @@ fn row_to_word(row: &Row) -> rusqlite::Result<Word> {
         bnc: row.get(7)?,
         frq: row.get(8)?,
         exchange: row.get(9)?,
+    })
+}
+
+fn row_to_zh_entry(row: &Row) -> rusqlite::Result<ZhEntry> {
+    Ok(ZhEntry {
+        id: row.get(0)?,
+        traditional: row.get(1)?,
+        simplified: row.get(2)?,
+        pinyin: row.get(3)?,
+        glosses: row.get(4)?,
     })
 }
 
@@ -95,6 +107,69 @@ impl DictRepo {
             .query_map(rusqlite::params![prefix, lower, limit], row_to_word)
             .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
         rows.unwrap_or_default()
+    }
+
+    /// Chinese->English (汉英) lookup against the CC-CEDICT `zh_entries`
+    /// table, which is keyed by the Chinese headword. Matching runs over the
+    /// simplified form, the traditional form, and (for romaji input) the
+    /// toneless pinyin. Results are ranked exact-headword first, then
+    /// prefix, then substring; ties break toward shorter (more base) words.
+    pub fn search_zh(&self, query: &str, limit: i64) -> Vec<ZhEntry> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Vec::new();
+        }
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let substr = format!("%{}%", q);
+        let prefix = format!("{}%", q);
+        // Toneless romaji form for pinyin matching (Chinese input yields "").
+        let py: String = q
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect();
+        let py_prefix = format!("{}%", py);
+        // Only match pinyin when the query is romaji; an empty `py` would make
+        // `pinyin_plain LIKE '%'` match every row and pollute Chinese searches.
+        let romaji = !py.is_empty() && q.chars().all(|c| c.is_ascii());
+        let where_clause = if romaji {
+            "z.simplified LIKE ?1 OR z.traditional LIKE ?1 OR z.pinyin_plain LIKE ?2"
+        } else {
+            "z.simplified LIKE ?1 OR z.traditional LIKE ?1"
+        };
+        let sql = format!(
+            "SELECT {ZH_COLS} FROM zh_entries z \
+             WHERE {where_clause} \
+             ORDER BY CASE WHEN z.simplified = ?3 OR z.traditional = ?3 THEN 0 \
+                           WHEN z.simplified LIKE ?4 OR z.traditional LIKE ?4 THEN 1 \
+                           ELSE 2 END, \
+                      length(z.simplified) ASC, z.simplified ASC \
+             LIMIT ?5"
+        );
+        let mut stmt = match conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt
+            .query_map(
+                rusqlite::params![substr, py_prefix, q, prefix, limit],
+                row_to_zh_entry,
+            )
+            .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
+        rows.unwrap_or_default()
+    }
+
+    /// Total number of Chinese->English (汉英) entries.
+    pub fn zh_total(&self) -> i64 {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return 0,
+        };
+        conn.query_row("SELECT COUNT(*) FROM zh_entries", [], |r| r.get(0))
+            .unwrap_or(0)
     }
 
     pub fn get_by_word(&self, word: &str) -> Option<Word> {
@@ -219,5 +294,99 @@ impl DictRepo {
         };
         conn.query_row("SELECT COUNT(*) FROM words", [], |r| r.get(0))
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ZhEntry;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn zh(id: i64, trad: &str, simp: &str, py: &str, glosses: &str) -> ZhEntry {
+        ZhEntry {
+            id,
+            traditional: trad.into(),
+            simplified: simp.into(),
+            pinyin: py.into(),
+            glosses: glosses.into(),
+        }
+    }
+
+    #[test]
+    fn gloss_list_splits_and_trims() {
+        let e = zh(1, "蘋果", "苹果", "ping2 guo3", "apple/CL:個|个[ge4]/FIG. fruit");
+        assert_eq!(e.gloss_list(), vec!["apple", "CL:個|个[ge4]", "FIG. fruit"]);
+        assert!(zh(2, "x", "x", "", "").gloss_list().is_empty());
+    }
+
+    #[test]
+    fn english_heads_skips_markers_and_stopwords() {
+        // "to X" -> X ; trailing CL: marker contributes nothing
+        let e = zh(1, "放棄", "放弃", "fang4 qi4", "to renounce/to abandon/CL:個|个[ge4]");
+        assert_eq!(
+            e.english_heads(),
+            vec!["renounce".to_string(), "abandon".to_string()]
+        );
+        // parenthetical "(Tw)" marker skipped -> "calculator"
+        let e2 = zh(2, "計算機", "计算机", "ji4 suan4 ji1", "computer/(Tw) calculator");
+        assert_eq!(
+            e2.english_heads(),
+            vec!["computer".to_string(), "calculator".to_string()]
+        );
+    }
+
+    /// Build a throwaway DB with a `zh_entries` table and return a repo for it.
+    fn temp_zh_repo(rows: &[(&str, &str, &str, &str)]) -> (DictRepo, PathBuf) {
+        static SEQ: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "synstudy_zh_test_{}_{}.db",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_file(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE zh_entries (
+                id INTEGER PRIMARY KEY, traditional TEXT NOT NULL, simplified TEXT NOT NULL,
+                pinyin TEXT DEFAULT '', pinyin_plain TEXT DEFAULT '', glosses TEXT DEFAULT ''
+            );",
+        )
+        .unwrap();
+        for (i, (trad, simp, py_plain, glosses)) in rows.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO zh_entries \
+                 (id, traditional, simplified, pinyin, pinyin_plain, glosses) \
+                 VALUES (?1,?2,?3,?4,?5,?6)",
+                rusqlite::params![i as i64 + 1, *trad, *simp, "", *py_plain, *glosses],
+            )
+            .unwrap();
+        }
+        drop(conn);
+        (DictRepo::new(path.clone()), path)
+    }
+
+    #[test]
+    fn search_zh_ranks_exact_then_prefix_then_substring() {
+        let (repo, path) = temp_zh_repo(&[
+            ("蘋果", "苹果", "pingguo", "apple"),
+            ("果", "果", "guo", "fruit/result"),
+            ("果汁", "果汁", "guozhi", "juice"),
+            ("水果", "水果", "shuiguo", "fruit"),
+        ]);
+        let hits = repo.search_zh("果", 10);
+        let simp: Vec<&str> = hits.iter().map(|e| e.simplified.as_str()).collect();
+        // exact headword "果" ranks first
+        assert_eq!(simp.first().copied(), Some("果"));
+        // prefix (果汁) and substring (水果/苹果) matches all present
+        assert!(simp.contains(&"果汁"));
+        assert!(simp.contains(&"水果"));
+        assert!(simp.contains(&"苹果"));
+        // romaji pinyin search resolves to the Chinese headword
+        let py = repo.search_zh("pingguo", 10);
+        assert!(py.iter().any(|e| e.simplified == "苹果"));
+        // empty / whitespace queries return nothing
+        assert!(repo.search_zh("   ", 10).is_empty());
+        let _ = std::fs::remove_file(&path);
     }
 }

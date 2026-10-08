@@ -90,6 +90,17 @@ h1, h2, h3, h4 { color: var(--text); }
 .btn.big     { padding: 12px 26px; font-size: 16px; margin-top: 10px; }
 
 /* ---------------- Dictionary ---------------- */
+.seg {
+  display: inline-flex; gap: 3px; padding: 3px; margin-bottom: 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+}
+.seg-btn {
+  background: transparent; border: none; color: var(--muted);
+  padding: 6px 20px; border-radius: 999px; cursor: pointer; font-size: 14px;
+  transition: background .15s, color .15s;
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn.active { background: var(--primary); color: #fff; }
 .search-bar { position: relative; margin-bottom: 16px; }
 .search-input {
   width: 100%; padding: 13px 40px 13px 16px; font-size: 16px;
@@ -134,6 +145,20 @@ h1, h2, h3, h4 { color: var(--text); }
 .chip {
   background: var(--primary-soft); color: #dfe4ff; padding: 3px 10px; border-radius: 999px; font-size: 12px;
 }
+
+/* ---------------- 汉英 (Chinese -> English) ---------------- */
+.result-pinyin { color: var(--primary); font-size: 12px; }
+.wd-zh-word { font-size: 34px; margin: 0; }
+.wd-zh-trad { color: var(--muted); font-size: 15px; }
+.wd-pinyin { color: var(--primary); font-size: 16px; margin-bottom: 4px; }
+.wd-gloss .gloss-line { font-size: 16px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+.wd-gloss .gloss-line:last-child { border-bottom: none; }
+.wd-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip-link {
+  cursor: pointer; border: 1px solid transparent; font-size: 14px; padding: 4px 12px;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.chip-link:hover { border-color: var(--primary); background: var(--panel-2); color: var(--text); }
 
 /* ---------------- Categories ---------------- */
 .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
