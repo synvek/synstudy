@@ -50,6 +50,21 @@ pub struct Example {
     pub source: String,
 }
 
+/// A word root / affix entry (ECDICT wordroot data). The words that use it are
+/// linked separately through the `root_words` table.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WordRoot {
+    /// Stable key, e.g. `hom` or `-less`.
+    pub root_key: String,
+    /// Grammatical class, e.g. `root` / `adjective-forming suffix`.
+    pub class: String,
+    pub meaning: String,
+    pub origin: String,
+    /// Comma-separated related roots/affixes.
+    pub synonyms: String,
+    pub antonyms: String,
+}
+
 /// A Chinese->English dictionary entry (CC-CEDICT), keyed by Chinese headword.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ZhEntry {
@@ -173,6 +188,12 @@ pub struct WordProgress {
     pub lapses: i64,
     pub ease: f64,
     pub interval_days: f64,
+    /// FSRS memory stability (days). 0 until an FSRS review runs.
+    pub stability: f64,
+    /// FSRS card difficulty (0..1). 0 until an FSRS review runs.
+    pub difficulty: f64,
+    /// Scheduler that produced the current state: 0 = SM-2 lite, 1 = FSRS.
+    pub scheduler: i64,
     /// Unix timestamp (seconds) of the last review.
     pub last_review: Option<i64>,
     /// Unix timestamp (seconds) when the word becomes due again.
@@ -189,6 +210,9 @@ impl WordProgress {
             lapses: 0,
             ease: 2.5,
             interval_days: 0.0,
+            stability: 0.0,
+            difficulty: 0.0,
+            scheduler: 0,
             last_review: None,
             next_review: None,
         }

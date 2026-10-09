@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use rusqlite::{Connection, OpenFlags, Row};
 
-use crate::models::{Category, Example, Word, ZhEntry};
+use crate::models::{Category, Example, Word, WordRoot, ZhEntry};
 
 const WORD_COLS: &str = "w.id, w.word, w.phonetic, w.translation, w.definition, \
                          w.pos, w.tag, w.bnc, w.frq, w.exchange, w.cefr";
@@ -45,6 +45,52 @@ fn row_to_zh_entry(row: &Row) -> rusqlite::Result<ZhEntry> {
     })
 }
 
+fn row_to_root(row: &Row) -> rusqlite::Result<WordRoot> {
+    Ok(WordRoot {
+        root_key: row.get(0)?,
+        class: row.get(1)?,
+        meaning: row.get(2)?,
+        origin: row.get(3)?,
+        synonyms: row.get(4)?,
+        antonyms: row.get(5)?,
+    })
+}
+
+const ROOT_COLS: &str = "r.root_key, r.class, r.meaning, r.origin, r.synonyms, r.antonyms";
+
+/// True when `a` and `b` differ by at most one edit. Uses the optimal string
+/// alignment (restricted Damerau-Levenshtein) distance so a single adjacent
+/// transposition (e.g. "acheive" -> "achieve") counts as one edit. Used for
+/// bounded typo tolerance in `search_fuzzy`.
+fn edit_distance_le1(a: &str, b: &str) -> bool {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (n, m) = (a.len(), b.len());
+    if n.abs_diff(m) > 1 {
+        return false;
+    }
+    let mut d = vec![vec![0usize; m + 1]; n + 1];
+    for i in 0..=n {
+        d[i][0] = i;
+    }
+    for j in 0..=m {
+        d[0][j] = j;
+    }
+    for i in 1..=n {
+        for j in 1..=m {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            let mut val = (d[i - 1][j] + 1)
+                .min(d[i][j - 1] + 1)
+                .min(d[i - 1][j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                val = val.min(d[i - 2][j - 2] + cost);
+            }
+            d[i][j] = val;
+        }
+    }
+    d[n][m] <= 1
+}
+
 #[allow(dead_code)]
 impl DictRepo {
     pub fn new(path: PathBuf) -> Self {
@@ -80,9 +126,30 @@ impl DictRepo {
         )
     }
 
+    /// Search the dictionary. Prefers the FTS5 full-text index (prefix match on
+    /// the headword plus full-text match on the translation) when present;
+    /// falls back to a plain `LIKE` prefix query, and finally to a bounded
+    /// edit-distance (<= 1) fuzzy pass for likely typos.
+    pub fn search(&self, query: &str, limit: i64) -> Vec<Word> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Vec::new();
+        }
+        if let Some(hits) = self.search_fts(q, limit) {
+            if !hits.is_empty() {
+                return hits;
+            }
+        }
+        let mut hits = self.search_like(q, limit);
+        if hits.is_empty() {
+            hits = self.search_fuzzy(q, limit);
+        }
+        hits
+    }
+
     /// Prefix search on the headword. Exact matches rank first, then by
     /// frequency (lower `frq` == more common).
-    pub fn search(&self, query: &str, limit: i64) -> Vec<Word> {
+    fn search_like(&self, query: &str, limit: i64) -> Vec<Word> {
         let q = query.trim();
         if q.is_empty() {
             return Vec::new();
@@ -108,6 +175,80 @@ impl DictRepo {
             .query_map(rusqlite::params![prefix, lower, limit], row_to_word)
             .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
         rows.unwrap_or_default()
+    }
+
+    /// FTS5-backed search. Returns `None` when the `words_fts` table is absent
+    /// (older databases / FTS5 unavailable at build time) or the query cannot be
+    /// prepared, so the caller can degrade to `search_like`. The term is quoted
+    /// (with an inner-quote escape) and given a `*` suffix for prefix matching.
+    fn search_fts(&self, query: &str, limit: i64) -> Option<Vec<Word>> {
+        let q = query.trim();
+        if q.is_empty() {
+            return None;
+        }
+        let conn = self.conn().ok()?;
+        let lower = q.to_lowercase();
+        let escaped = lower.replace('"', "\"\"");
+        let match_expr = format!("\"{escaped}\"*");
+        let prefix = format!("{}%", lower);
+        let sql = format!(
+            "SELECT {WORD_COLS} FROM words_fts JOIN words w ON w.id = words_fts.rowid \
+             WHERE words_fts MATCH ?1 \
+             ORDER BY CASE WHEN lower(w.word) = ?2 THEN 0 \
+                           WHEN lower(w.word) LIKE ?3 THEN 1 ELSE 2 END, \
+                      bm25(words_fts), \
+                      CASE WHEN w.frq > 0 THEN w.frq ELSE 99999999 END \
+             LIMIT ?4"
+        );
+        let mut stmt = conn.prepare(&sql).ok()?;
+        let rows = stmt
+            .query_map(
+                rusqlite::params![match_expr, lower, prefix, limit],
+                row_to_word,
+            )
+            .ok()?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .ok()?;
+        Some(rows)
+    }
+
+    /// Bounded typo tolerance: only reached when prefix/full-text search found
+    /// nothing. Pulls a frequency-ordered candidate pool sharing the query's
+    /// first two letters and keeps those within edit distance 1. Typos in the
+    /// first two letters are intentionally not corrected (keeps the scan small).
+    fn search_fuzzy(&self, query: &str, limit: i64) -> Vec<Word> {
+        let q = query.trim().to_lowercase();
+        let len = q.chars().count();
+        if len < 3 || len > 24 || !q.chars().all(|c| c.is_ascii_alphabetic()) {
+            return Vec::new();
+        }
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let prefix: String = q.chars().take(2).collect();
+        let like = format!("{}%", prefix);
+        let sql = format!(
+            "SELECT {WORD_COLS} FROM words w WHERE w.word LIKE ?1 \
+             ORDER BY CASE WHEN w.frq > 0 THEN w.frq ELSE 99999999 END, w.word LIMIT 5000"
+        );
+        let mut stmt = match conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let candidates: Vec<Word> = stmt
+            .query_map(rusqlite::params![like], row_to_word)
+            .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>())
+            .unwrap_or_default();
+        let mut hits: Vec<Word> = candidates
+            .into_iter()
+            .filter(|w| edit_distance_le1(&q, &w.word.to_lowercase()))
+            .collect();
+        hits.sort_by_key(|w| if w.frq > 0 { w.frq } else { 99999999 });
+        if limit > 0 {
+            hits.truncate(limit as usize);
+        }
+        hits
     }
 
     /// Chinese->English (汉英) lookup against the CC-CEDICT `zh_entries`
@@ -320,6 +461,78 @@ impl DictRepo {
         conn.query_row("SELECT COUNT(*) FROM words", [], |r| r.get(0))
             .unwrap_or(0)
     }
+
+    /// All word roots/affixes ordered by key. Returns empty when the
+    /// `word_roots` table is absent (databases built before schema v6).
+    pub fn roots(&self) -> Vec<WordRoot> {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let sql = format!(
+            "SELECT {ROOT_COLS} FROM word_roots r ORDER BY r.root_key"
+        );
+        let mut stmt = match conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt
+            .query_map([], row_to_root)
+            .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
+        rows.unwrap_or_default()
+    }
+
+    /// Words that use a given root, in stored order.
+    pub fn root_words(&self, root_key: &str) -> Vec<Word> {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let sql = format!(
+            "SELECT {WORD_COLS} FROM root_words rw \
+             JOIN words w ON w.id = rw.word_id \
+             WHERE rw.root_key = ?1 ORDER BY rw.order_index, w.word"
+        );
+        let mut stmt = match conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt
+            .query_map(rusqlite::params![root_key], row_to_word)
+            .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
+        rows.unwrap_or_default()
+    }
+
+    /// Roots/affixes that a given word is built from.
+    pub fn roots_for_word(&self, word_id: i64) -> Vec<WordRoot> {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let sql = format!(
+            "SELECT {ROOT_COLS} FROM root_words rw \
+             JOIN word_roots r ON r.root_key = rw.root_key \
+             WHERE rw.word_id = ?1 ORDER BY r.root_key"
+        );
+        let mut stmt = match conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt
+            .query_map(rusqlite::params![word_id], row_to_root)
+            .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
+        rows.unwrap_or_default()
+    }
+
+    /// Number of root/affix entries (0 when the table is absent).
+    pub fn root_total(&self) -> i64 {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return 0,
+        };
+        conn.query_row("SELECT COUNT(*) FROM word_roots", [], |r| r.get(0))
+            .unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
@@ -457,6 +670,168 @@ mod tests {
         assert_eq!(ex[1].source, "proverb");
         // unknown word id -> empty (and a missing table would also degrade to empty)
         assert!(repo.get_examples(999, 5).is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Build a words table (optionally with an FTS5 index) for search tests.
+    fn temp_search_repo(with_fts: bool) -> (DictRepo, PathBuf) {
+        static SEQ: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "synstudy_search_test_{}_{}.db",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_file(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE words (
+                id INTEGER PRIMARY KEY, word TEXT NOT NULL UNIQUE,
+                phonetic TEXT DEFAULT '', translation TEXT DEFAULT '',
+                definition TEXT DEFAULT '', pos TEXT DEFAULT '', tag TEXT DEFAULT '',
+                bnc INTEGER DEFAULT 0, frq INTEGER DEFAULT 0, exchange TEXT DEFAULT '', cefr TEXT DEFAULT ''
+            );",
+        )
+        .unwrap();
+        let rows = [
+            (1i64, "achieve", "v. 实现；达成", 100i64),
+            (2, "achievement", "n. 成就", 200),
+            (3, "apple", "n. 苹果", 50),
+            (4, "application", "n. 应用；申请", 80),
+        ];
+        for (id, word, trans, frq) in rows {
+            conn.execute(
+                "INSERT INTO words (id, word, translation, frq) VALUES (?1,?2,?3,?4)",
+                rusqlite::params![id, word, trans, frq],
+            )
+            .unwrap();
+        }
+        if with_fts {
+            conn.execute_batch(
+                "CREATE VIRTUAL TABLE words_fts USING fts5(
+                    word, translation, content='words', content_rowid='id');
+                 INSERT INTO words_fts(rowid, word, translation)
+                    SELECT id, word, translation FROM words;",
+            )
+            .expect("FTS5 must be available in the bundled SQLite build");
+        }
+        drop(conn);
+        (DictRepo::new(path.clone()), path)
+    }
+
+    #[test]
+    fn edit_distance_le1_handles_transposition_and_single_edits() {
+        assert!(edit_distance_le1("acheive", "achieve")); // adjacent transposition
+        assert!(edit_distance_le1("aple", "apple")); // one insertion
+        assert!(edit_distance_le1("apple", "apples")); // trailing insert
+        assert!(edit_distance_le1("cat", "bat")); // one substitution
+        assert!(edit_distance_le1("apple", "apple")); // identical
+        assert!(!edit_distance_le1("apple", "orange")); // far apart
+        assert!(edit_distance_le1("ab", "abc")); // one insertion
+        assert!(!edit_distance_le1("ab", "abcd")); // two insertions
+    }
+
+    #[test]
+    fn fts_prefix_and_fulltext_search() {
+        let (repo, path) = temp_search_repo(true);
+        // Headword prefix.
+        let hits = repo.search("ach", 10);
+        let words: Vec<&str> = hits.iter().map(|w| w.word.as_str()).collect();
+        assert!(words.contains(&"achieve"));
+        assert!(words.contains(&"achievement"));
+        // Full-text on the Chinese translation.
+        let zh = repo.search("苹果", 10);
+        assert!(zh.iter().any(|w| w.word == "apple"));
+        // Exact headword ranks first.
+        let exact = repo.search("apple", 10);
+        assert_eq!(exact.first().map(|w| w.word.as_str()), Some("apple"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fuzzy_fallback_fixes_typo_without_fts() {
+        let (repo, path) = temp_search_repo(false);
+        // No FTS table -> search_like finds nothing for the typo, fuzzy recovers it.
+        let hits = repo.search("acheive", 10);
+        assert!(hits.iter().any(|w| w.word == "achieve"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fuzzy_fallback_fixes_typo_with_fts_present() {
+        let (repo, path) = temp_search_repo(true);
+        // FTS prefix on the typo yields nothing, so the fuzzy pass still runs.
+        let hits = repo.search("aple", 10);
+        assert!(hits.iter().any(|w| w.word == "apple"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Words + `word_roots`/`root_words` for root-query tests. Links are
+    /// inserted out of order to prove `root_words` sorts by `order_index`.
+    fn temp_root_repo() -> (DictRepo, PathBuf) {
+        static SEQ: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "synstudy_root_test_{}_{}.db",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_file(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE words (
+                id INTEGER PRIMARY KEY, word TEXT NOT NULL UNIQUE,
+                phonetic TEXT DEFAULT '', translation TEXT DEFAULT '',
+                definition TEXT DEFAULT '', pos TEXT DEFAULT '', tag TEXT DEFAULT '',
+                bnc INTEGER DEFAULT 0, frq INTEGER DEFAULT 0, exchange TEXT DEFAULT '', cefr TEXT DEFAULT ''
+            );
+            CREATE TABLE word_roots (
+                root_key TEXT PRIMARY KEY, class TEXT DEFAULT '', meaning TEXT DEFAULT '',
+                origin TEXT DEFAULT '', synonyms TEXT DEFAULT '', antonyms TEXT DEFAULT ''
+            );
+            CREATE TABLE root_words (
+                root_key TEXT NOT NULL, word_id INTEGER NOT NULL, order_index INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (root_key, word_id)
+            );
+            INSERT INTO words (id, word, translation) VALUES
+                (1,'malfunction','n. 故障'),
+                (2,'malware','n. 恶意软件');
+            INSERT INTO word_roots (root_key, class, meaning, origin) VALUES
+                ('mal','prefix','bad','Latin');
+            INSERT INTO root_words (root_key, word_id, order_index) VALUES
+                ('mal',2,1),('mal',1,0);",
+        )
+        .unwrap();
+        drop(conn);
+        (DictRepo::new(path.clone()), path)
+    }
+
+    #[test]
+    fn roots_degrade_when_table_absent() {
+        // temp_word_repo has no root tables -> queries degrade to empty.
+        let (repo, path) = temp_word_repo();
+        assert!(repo.roots().is_empty());
+        assert!(repo.roots_for_word(1).is_empty());
+        assert!(repo.root_words("mal").is_empty());
+        assert_eq!(repo.root_total(), 0);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn roots_round_trip_and_reverse_lookup() {
+        let (repo, path) = temp_root_repo();
+        let roots = repo.roots();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].root_key, "mal");
+        assert_eq!(roots[0].meaning, "bad");
+        assert_eq!(roots[0].class, "prefix");
+        // Ordered by order_index, not insertion order.
+        let words = repo.root_words("mal");
+        let ws: Vec<&str> = words.iter().map(|w| w.word.as_str()).collect();
+        assert_eq!(ws, vec!["malfunction", "malware"]);
+        // Reverse lookup maps a word back to its root.
+        let fw = repo.roots_for_word(words[0].id);
+        assert_eq!(fw.len(), 1);
+        assert_eq!(fw[0].root_key, "mal");
+        assert_eq!(repo.root_total(), 1);
         let _ = std::fs::remove_file(&path);
     }
 }

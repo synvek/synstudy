@@ -4,6 +4,42 @@
 //! tested without a clock: callers pass `now` (unix seconds) explicitly.
 
 use crate::models::{ProgressStatus, WordProgress};
+use serde::{Deserialize, Serialize};
+
+/// Which spaced-repetition algorithm schedules a review.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Scheduler {
+    /// The built-in lightweight SM-2 variant (default).
+    #[default]
+    Sm2,
+    /// Free Spaced Repetition Scheduler (`fsrs` crate).
+    Fsrs,
+}
+
+impl Scheduler {
+    /// Stable integer code persisted on each progress row.
+    pub fn code(self) -> i64 {
+        match self {
+            Scheduler::Sm2 => 0,
+            Scheduler::Fsrs => 1,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn from_code(v: i64) -> Self {
+        match v {
+            1 => Scheduler::Fsrs,
+            _ => Scheduler::Sm2,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Scheduler::Sm2 => "SM-2 lite（默认）",
+            Scheduler::Fsrs => "FSRS",
+        }
+    }
+}
 
 /// Self-assessment rating after recalling a word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +64,7 @@ impl Rating {
         }
     }
 
-    #[allow(dead_code)]
+    /// Digit shown on the rating buttons and bound as a keyboard shortcut.
     pub fn key_hint(&self) -> &'static str {
         match self {
             Rating::Again => "1",
@@ -103,6 +139,72 @@ pub fn review(progress: &mut WordProgress, rating: Rating, now: i64) {
 
     progress.reps += 1;
     let days = progress.interval_days.min(MAX_INTERVAL_DAYS);
+    progress.interval_days = days;
+    let secs = (days * DAY_SECS as f64).round() as i64;
+    progress.next_review = Some(now.saturating_add(secs.max(60)));
+    progress.status = if days >= MASTERED_DAYS {
+        ProgressStatus::Mastered
+    } else {
+        ProgressStatus::Reviewing
+    };
+}
+
+/// Desired memory retention targeted by the FSRS scheduler.
+const FSRS_DESIRED_RETENTION: f32 = 0.9;
+
+/// Schedule `progress` for `rating` at `now` using the selected `algo`. The
+/// SM-2 branch is unchanged; the FSRS branch additionally reads and writes the
+/// `stability`/`difficulty` columns so state survives across reviews.
+pub fn schedule(progress: &mut WordProgress, rating: Rating, now: i64, algo: Scheduler) {
+    match algo {
+        Scheduler::Sm2 => review(progress, rating, now),
+        Scheduler::Fsrs => review_fsrs(progress, rating, now),
+    }
+}
+
+/// FSRS-backed scheduling. Any computation error falls back to the SM-2 path so
+/// a review is never lost.
+fn review_fsrs(progress: &mut WordProgress, rating: Rating, now: i64) {
+    use fsrs::{MemoryState, FSRS};
+    let fsrs = FSRS::default();
+    let previous = if progress.reps > 0 && progress.stability > 0.0 {
+        Some(MemoryState {
+            stability: progress.stability as f32,
+            difficulty: progress.difficulty as f32,
+        })
+    } else {
+        None
+    };
+    let elapsed_days = match progress.last_review {
+        Some(last) if now > last => ((now - last) / DAY_SECS).clamp(0, u32::MAX as i64) as u32,
+        _ => 0,
+    };
+    let next = match fsrs.next_states(previous, FSRS_DESIRED_RETENTION, elapsed_days) {
+        Ok(n) => n,
+        Err(_) => return review(progress, rating, now),
+    };
+    let state = match rating {
+        Rating::Again => next.again,
+        Rating::Hard => next.hard,
+        Rating::Good => next.good,
+        Rating::Easy => next.easy,
+    };
+    progress.stability = state.memory.stability as f64;
+    progress.difficulty = state.memory.difficulty as f64;
+    progress.last_review = Some(now);
+    progress.scheduler = Scheduler::Fsrs.code();
+
+    if rating == Rating::Again {
+        progress.lapses += 1;
+        progress.reps = 0;
+        progress.interval_days = 0.0;
+        progress.next_review = Some(now + AGAIN_DELAY_SECS);
+        progress.status = ProgressStatus::Learning;
+        return;
+    }
+
+    progress.reps += 1;
+    let days = (state.interval.round().max(1.0) as f64).min(MAX_INTERVAL_DAYS);
     progress.interval_days = days;
     let secs = (days * DAY_SECS as f64).round() as i64;
     progress.next_review = Some(now.saturating_add(secs.max(60)));
@@ -195,5 +297,54 @@ mod tests {
     fn session_size_caps() {
         assert_eq!(session_size(5, 20), 5);
         assert_eq!(session_size(50, 20), 20);
+    }
+
+    #[test]
+    fn scheduler_code_round_trip() {
+        assert_eq!(Scheduler::from_code(Scheduler::Sm2.code()), Scheduler::Sm2);
+        assert_eq!(Scheduler::from_code(Scheduler::Fsrs.code()), Scheduler::Fsrs);
+        // Unknown codes degrade to the default SM-2.
+        assert_eq!(Scheduler::from_code(99), Scheduler::Sm2);
+        assert_eq!(Scheduler::default(), Scheduler::Sm2);
+    }
+
+    #[test]
+    fn fsrs_writes_state_and_grows_interval() {
+        let mut p = wp();
+        schedule(&mut p, Rating::Good, 0, Scheduler::Fsrs);
+        // FSRS stamps its own state on the row.
+        assert_eq!(p.scheduler, Scheduler::Fsrs.code());
+        assert!(p.stability > 0.0);
+        assert!(p.difficulty > 0.0);
+        assert_eq!(p.reps, 1);
+        assert!(p.interval_days >= 1.0);
+        let first = p.interval_days;
+        // A later `Easy` review extends the interval monotonically.
+        schedule(&mut p, Rating::Easy, 1_000_000, Scheduler::Fsrs);
+        assert!(p.interval_days >= first);
+        assert_eq!(p.reps, 2);
+        assert!(p.next_review.unwrap() > 1_000_000);
+    }
+
+    #[test]
+    fn fsrs_again_resets_to_learning() {
+        let mut p = wp();
+        schedule(&mut p, Rating::Good, 0, Scheduler::Fsrs);
+        schedule(&mut p, Rating::Again, 10_000, Scheduler::Fsrs);
+        assert_eq!(p.reps, 0);
+        assert_eq!(p.lapses, 1);
+        assert_eq!(p.status, ProgressStatus::Learning);
+        assert_eq!(p.next_review, Some(10_000 + AGAIN_DELAY_SECS));
+    }
+
+    #[test]
+    fn switching_scheduler_does_not_panic() {
+        // A row scheduled by FSRS can be handed back to SM-2 and vice versa.
+        let mut p = wp();
+        schedule(&mut p, Rating::Good, 0, Scheduler::Fsrs);
+        schedule(&mut p, Rating::Good, 100_000, Scheduler::Sm2);
+        assert_eq!(p.scheduler, Scheduler::Fsrs.code()); // SM-2 leaves the tag alone
+        schedule(&mut p, Rating::Good, 200_000, Scheduler::Fsrs);
+        assert!(p.next_review.is_some());
     }
 }

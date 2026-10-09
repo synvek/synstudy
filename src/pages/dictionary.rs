@@ -81,6 +81,55 @@ pub fn Dictionary() -> Element {
         format!("共收录 {} 词", word_total)
     };
 
+    // Arrow keys move the highlighted result; Enter opens the first/current one.
+    let onkey_search = {
+        let en = en_list.clone();
+        let zh = zh_list.clone();
+        let mode = cur_mode;
+        move |evt: Event<KeyboardData>| {
+            let delta = match evt.code() {
+                Code::ArrowDown => 1,
+                Code::ArrowUp => -1,
+                Code::Enter | Code::NumpadEnter => 0,
+                _ => return,
+            };
+            evt.prevent_default();
+            if mode == SearchMode::En2Zh {
+                if en.is_empty() {
+                    return;
+                }
+                let cur = selected().and_then(|s| en.iter().position(|w| w.id == s.id));
+                let next = match (delta, cur) {
+                    (0, c) => c.unwrap_or(0),
+                    (_, Some(c)) => {
+                        let n = en.len() as i64;
+                        (((c as i64 + delta) % n + n) % n) as usize
+                    }
+                    (_, None) => if delta > 0 { 0 } else { en.len() - 1 },
+                };
+                if let Some(w) = en.get(next) {
+                    selected.set(Some(w.clone()));
+                }
+            } else {
+                if zh.is_empty() {
+                    return;
+                }
+                let cur = selected_zh().and_then(|s| zh.iter().position(|e| e.id == s.id));
+                let next = match (delta, cur) {
+                    (0, c) => c.unwrap_or(0),
+                    (_, Some(c)) => {
+                        let n = zh.len() as i64;
+                        (((c as i64 + delta) % n + n) % n) as usize
+                    }
+                    (_, None) => if delta > 0 { 0 } else { zh.len() - 1 },
+                };
+                if let Some(e) = zh.get(next) {
+                    selected_zh.set(Some(e.clone()));
+                }
+            }
+        }
+    };
+
     rsx! {
         div { class: "page dictionary",
             div { class: "page-head",
@@ -119,6 +168,7 @@ pub fn Dictionary() -> Element {
                     value: "{query}",
                     autofocus: true,
                     oninput: move |e| query.set(e.value()),
+                    onkeydown: onkey_search,
                 }
                 if !query().is_empty() {
                     button {

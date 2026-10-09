@@ -6,6 +6,7 @@ use crate::models::{Category, WordProgress};
 use crate::pages::PickCategory;
 use crate::srs::{self, Rating};
 use crate::state::{now_ts, Page, Settings};
+use crate::tts;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Phase {
@@ -18,7 +19,7 @@ enum Phase {
 pub fn Review() -> Element {
     let dict: DictRepo = use_context();
     let progress: ProgressRepo = use_context();
-    let _settings: Signal<Settings> = use_context();
+    let settings: Signal<Settings> = use_context();
     let selected: Signal<Option<Category>> = use_context();
     let mut page: Signal<Page> = use_context();
 
@@ -26,6 +27,27 @@ pub fn Review() -> Element {
     let mut queue = use_signal(|| Vec::<i64>::new());
     let mut idx = use_signal(|| 0usize);
     let mut revealed = use_signal(|| false);
+    // Whether the running session is a "错词强化" (weak-word) queue rather than
+    // the normal due queue. Drives the on-screen labels.
+    let mut weak_mode = use_signal(|| false);
+
+    // Auto-pronounce the current word when its card is revealed (opt-in).
+    let dict_tts = dict.clone();
+    use_effect(move || {
+        if !revealed() {
+            return;
+        }
+        let s = settings();
+        if !s.tts_enabled || !s.tts_autoplay {
+            return;
+        }
+        let i = idx();
+        if let Some(wid) = queue().get(i).copied() {
+            if let Some(w) = dict_tts.get_by_id(wid) {
+                tts::speak(&w.word, s.tts_rate);
+            }
+        }
+    });
 
     let cat = match selected() {
         Some(c) => c,
@@ -35,13 +57,17 @@ pub fn Review() -> Element {
     let start_session = {
         let progress = progress.clone();
         let cat_id = cat.id;
-        move |_| {
-            let now = now_ts();
-            let ids = progress.due_word_ids(cat_id, now);
+        move |weak: bool| {
+            let ids = if weak {
+                progress.weak_word_ids(cat_id, 200)
+            } else {
+                progress.due_word_ids(cat_id, now_ts())
+            };
             let n = ids.len();
             queue.set(ids);
             idx.set(0);
             revealed.set(false);
+            weak_mode.set(weak);
             phase.set(if n == 0 { Phase::Done } else { Phase::Running });
         }
     };
@@ -49,8 +75,19 @@ pub fn Review() -> Element {
     match phase() {
         Phase::Idle => {
             let due = progress.due_word_ids(cat.id, now_ts()).len();
+            let weak_count = progress.weak_word_ids(cat.id, 200).len();
+            let onkeydown = {
+                let mut start = start_session.clone();
+                let can_start = due > 0;
+                move |evt: Event<KeyboardData>| {
+                    if can_start && matches!(evt.code(), Code::Enter | Code::NumpadEnter | Code::Space) {
+                        evt.prevent_default();
+                        start(false);
+                    }
+                }
+            };
             rsx! {
-                div { class: "page review",
+                div { class: "page review", tabindex: "-1", autofocus: true, onkeydown,
                     SessionHeader { name: cat.name.clone(), page }
                     div { class: "session-start",
                         h2 { "{cat.name} · 背诵" }
@@ -58,11 +95,27 @@ pub fn Review() -> Element {
                         button {
                             class: "btn primary big",
                             disabled: due == 0,
-                            onclick: start_session,
+                            onclick: {
+                                let mut start = start_session.clone();
+                                move |_| start(false)
+                            },
                             "开始背诵"
                         }
+                        if weak_count > 0 {
+                            button {
+                                class: "btn big",
+                                onclick: {
+                                    let mut start = start_session.clone();
+                                    move |_| start(true)
+                                },
+                                "错词强化（{weak_count}）"
+                            }
+                            p { class: "muted hint", "错词强化：集中复习曾经忘记或答错的单词。" }
+                        }
                         if due == 0 {
-                            p { class: "muted", "暂无到期单词，先去「学习」认识一些新词吧。" }
+                            p { class: "muted hint", "暂无到期单词，先去「学习」认识一些新词吧。" }
+                        } else {
+                            p { class: "muted hint", "快捷键：Enter / 空格 开始" }
                         }
                     }
                 }
@@ -78,13 +131,14 @@ pub fn Review() -> Element {
             let rate = {
                 let progress = progress.clone();
                 let cat_id = cat.id;
+                let scheduler = settings().scheduler;
                 move |rating: Rating| {
                     if let Some(wid) = current_id {
                         let mut p = progress
                             .get(wid, cat_id)
                             .unwrap_or_else(|| WordProgress::new(wid, cat_id));
                         let now = now_ts();
-                        srs::review(&mut p, rating, now);
+                        srs::schedule(&mut p, rating, now, scheduler);
                         progress.upsert(&p);
                         progress.log_review(wid, cat_id, rating.code(), now);
                         if rating == Rating::Again {
@@ -102,10 +156,43 @@ pub fn Review() -> Element {
                 }
             };
 
+            let onkeydown = {
+                let key_rate = rate.clone();
+                move |evt: Event<KeyboardData>| {
+                    if evt.code() == Code::Space {
+                        evt.prevent_default();
+                        let cur = revealed();
+                        revealed.set(!cur);
+                        return;
+                    }
+                    let digit = match evt.code() {
+                        Code::Digit1 | Code::Numpad1 => "1",
+                        Code::Digit2 | Code::Numpad2 => "2",
+                        Code::Digit3 | Code::Numpad3 => "3",
+                        Code::Digit4 | Code::Numpad4 => "4",
+                        _ => "",
+                    };
+                    if digit.is_empty() {
+                        return;
+                    }
+                    if let Some(rating) = [Rating::Again, Rating::Hard, Rating::Good, Rating::Easy]
+                        .into_iter()
+                        .find(|r| r.key_hint() == digit)
+                    {
+                        evt.prevent_default();
+                        let mut rr = key_rate.clone();
+                        rr(rating);
+                    }
+                }
+            };
+
             rsx! {
-                div { class: "page review",
+                div { class: "page review", tabindex: "-1", autofocus: true, onkeydown,
                     SessionHeader { name: cat.name.clone(), page }
-                    div { class: "session-progress", "{i + 1} / {len}" }
+                    div { class: "session-progress",
+                        if weak_mode() { span { class: "chip", "错词强化" } " " }
+                        "{i + 1} / {len}"
+                    }
                     match word {
                         Some(w) => rsx! {
                             WordCard {
@@ -124,7 +211,7 @@ pub fn Review() -> Element {
                                         let mut rate = rate.clone();
                                         move |_| rate(Rating::Again)
                                     },
-                                    "{Rating::Again.label()}"
+                                    "{Rating::Again.label()} ({Rating::Again.key_hint()})"
                                 }
                                 button {
                                     class: "btn rate-hard",
@@ -132,7 +219,7 @@ pub fn Review() -> Element {
                                         let mut rate = rate.clone();
                                         move |_| rate(Rating::Hard)
                                     },
-                                    "{Rating::Hard.label()}"
+                                    "{Rating::Hard.label()} ({Rating::Hard.key_hint()})"
                                 }
                                 button {
                                     class: "btn rate-good",
@@ -140,7 +227,7 @@ pub fn Review() -> Element {
                                         let mut rate = rate.clone();
                                         move |_| rate(Rating::Good)
                                     },
-                                    "{Rating::Good.label()}"
+                                    "{Rating::Good.label()} ({Rating::Good.key_hint()})"
                                 }
                                 button {
                                     class: "btn rate-easy",
@@ -148,7 +235,7 @@ pub fn Review() -> Element {
                                         let mut rate = rate.clone();
                                         move |_| rate(Rating::Easy)
                                     },
-                                    "{Rating::Easy.label()}"
+                                    "{Rating::Easy.label()} ({Rating::Easy.key_hint()})"
                                 }
                             }
                         },
@@ -162,7 +249,7 @@ pub fn Review() -> Element {
                 div { class: "page review",
                     SessionHeader { name: cat.name.clone(), page }
                     div { class: "session-done",
-                        h2 { "本轮背诵完成" }
+                        h2 { if weak_mode() { "错词强化完成" } else { "本轮背诵完成" } }
                         p { class: "muted", "单词已按记忆曲线安排下次复习时间。" }
                         div { class: "answer-row",
                             button {

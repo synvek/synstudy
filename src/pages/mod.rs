@@ -1,9 +1,12 @@
 pub mod categories;
 pub mod dictionary;
+pub mod quiz;
 pub mod review;
+pub mod roots;
 pub mod settings;
 pub mod stats;
 pub mod study;
+pub mod wordbook;
 
 use dioxus::prelude::*;
 

@@ -14,7 +14,7 @@ pub fn NavBar() -> Element {
                 span { class: "brand-name", "synstudy" }
             }
             div { class: "nav-links",
-                for p in Page::nav_items() {
+                for p in Page::nav_items().iter().copied() {
                     button {
                         key: "{p:?}",
                         class: if current == p { "nav-btn active" } else { "nav-btn" },

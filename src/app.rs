@@ -20,6 +20,8 @@ pub fn App() -> Element {
     // Navigation + selection + settings.
     use_context_provider(|| Signal::new(Page::Dictionary));
     use_context_provider(|| Signal::new(Option::<Category>::None));
+    // Currently selected word root (shared so WordDetail can deep-link to it).
+    use_context_provider(|| Signal::new(Option::<String>::None));
     use_context_provider(|| {
         let repo = ProgressRepo::new(db::progress_db_path());
         let settings = repo
@@ -27,6 +29,16 @@ pub fn App() -> Element {
             .and_then(|v| serde_json::from_str::<Settings>(&v).ok())
             .unwrap_or_default();
         Signal::new(settings)
+    });
+
+    // Reflect the color-scheme preference onto <html data-theme="..."> so the
+    // CSS variables in main.css switch between light and dark palettes.
+    let settings: Signal<Settings> = use_context();
+    use_effect(move || {
+        let theme = settings().theme.as_attr();
+        document::eval(&format!(
+            "document.documentElement.setAttribute('data-theme','{theme}')"
+        ));
     });
 
     rsx! {
@@ -37,10 +49,44 @@ pub fn App() -> Element {
 
 #[component]
 fn AppShell() -> Element {
-    let page: Signal<Page> = use_context();
+    let mut page: Signal<Page> = use_context();
+
+    // Global navigation shortcuts: Cmd/Ctrl+1..9 jump between pages (in the
+    // order of `Page::shortcut_pages`), Cmd/Ctrl+K jumps to the dictionary
+    // search. Handled at the app root so it works from any page (key events
+    // bubble up from focused descendants).
+    let onkeydown = move |evt: Event<KeyboardData>| {
+        let mods = evt.modifiers();
+        if !(mods.meta() || mods.ctrl()) {
+            return;
+        }
+        if evt.code() == Code::KeyK {
+            evt.prevent_default();
+            evt.stop_propagation();
+            page.set(Page::Dictionary);
+            return;
+        }
+        let idx = match evt.code() {
+            Code::Digit1 | Code::Numpad1 => 0,
+            Code::Digit2 | Code::Numpad2 => 1,
+            Code::Digit3 | Code::Numpad3 => 2,
+            Code::Digit4 | Code::Numpad4 => 3,
+            Code::Digit5 | Code::Numpad5 => 4,
+            Code::Digit6 | Code::Numpad6 => 5,
+            Code::Digit7 | Code::Numpad7 => 6,
+            Code::Digit8 | Code::Numpad8 => 7,
+            Code::Digit9 | Code::Numpad9 => 8,
+            _ => return,
+        };
+        if let Some(&target) = Page::shortcut_pages().get(idx) {
+            evt.prevent_default();
+            evt.stop_propagation();
+            page.set(target);
+        }
+    };
 
     rsx! {
-        div { class: "app",
+        div { class: "app", tabindex: "-1", onkeydown,
             NavBar {}
             main { class: "content",
                 match page() {
@@ -48,6 +94,9 @@ fn AppShell() -> Element {
                     Page::Categories => rsx! { pages::categories::Categories {} },
                     Page::Study => rsx! { pages::study::Study {} },
                     Page::Review => rsx! { pages::review::Review {} },
+                    Page::Wordbook => rsx! { pages::wordbook::Wordbook {} },
+                    Page::Quiz => rsx! { pages::quiz::Quiz {} },
+                    Page::Roots => rsx! { pages::roots::Roots {} },
                     Page::Stats => rsx! { pages::stats::Stats {} },
                     Page::Settings => rsx! { pages::settings::SettingsPage {} },
                 }

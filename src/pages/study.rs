@@ -6,6 +6,7 @@ use crate::models::{Category, ProgressStatus, WordProgress};
 use crate::pages::PickCategory;
 use crate::srs::{self, Rating};
 use crate::state::{now_ts, Page, Settings};
+use crate::tts;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Phase {
@@ -27,6 +28,24 @@ pub fn Study() -> Element {
     let mut idx = use_signal(|| 0usize);
     let mut revealed = use_signal(|| false);
 
+    // Auto-pronounce the current word when its card is revealed (opt-in).
+    let dict_tts = dict.clone();
+    use_effect(move || {
+        if !revealed() {
+            return;
+        }
+        let s = settings();
+        if !s.tts_enabled || !s.tts_autoplay {
+            return;
+        }
+        let i = idx();
+        if let Some(wid) = queue().get(i).copied() {
+            if let Some(w) = dict_tts.get_by_id(wid) {
+                tts::speak(&w.word, s.tts_rate);
+            }
+        }
+    });
+
     let cat = match selected() {
         Some(c) => c,
         None => return rsx! { PickCategory { mode: "学习" } },
@@ -37,7 +56,7 @@ pub fn Study() -> Element {
         let dict = dict.clone();
         let progress = progress.clone();
         let cat_id = cat.id;
-        move |_| {
+        move || {
             let reverse = settings().reverse;
             let per = settings().words_per_session.max(1);
             let all = dict.category_word_ids(cat_id, reverse);
@@ -72,14 +91,31 @@ pub fn Study() -> Element {
                     })
                     .count()
             };
+            let onkeydown = {
+                let mut start = start_session.clone();
+                move |evt: Event<KeyboardData>| {
+                    if matches!(evt.code(), Code::Enter | Code::NumpadEnter | Code::Space) {
+                        evt.prevent_default();
+                        start();
+                    }
+                }
+            };
             rsx! {
-                div { class: "page study",
+                div { class: "page study", tabindex: "-1", autofocus: true, onkeydown,
                     SessionHeader { name: cat.name.clone(), page }
                     div { class: "session-start",
                         h2 { "{cat.name}" }
                         p { class: "muted", "共 {cat.word_count} 词 · 未学 {remaining} 词" }
                         p { class: "muted", "每轮学习 {settings().words_per_session} 个新词" }
-                        button { class: "btn primary big", onclick: start_session, "开始学习" }
+                        button {
+                            class: "btn primary big",
+                            onclick: {
+                                let mut start = start_session.clone();
+                                move |_| start()
+                            },
+                            "开始学习"
+                        }
+                        p { class: "muted hint", "快捷键：Enter / 空格 开始" }
                     }
                 }
             }
@@ -94,6 +130,7 @@ pub fn Study() -> Element {
             let answer = {
                 let progress = progress.clone();
                 let cat_id = cat.id;
+                let scheduler = settings().scheduler;
                 move |known: bool| {
                     if let Some(wid) = current_id {
                         let rating = if known { Rating::Good } else { Rating::Again };
@@ -101,7 +138,7 @@ pub fn Study() -> Element {
                             .get(wid, cat_id)
                             .unwrap_or_else(|| WordProgress::new(wid, cat_id));
                         let now = now_ts();
-                        srs::review(&mut p, rating, now);
+                        srs::schedule(&mut p, rating, now, scheduler);
                         progress.upsert(&p);
                         progress.log_review(wid, cat_id, rating.code(), now);
                     }
@@ -114,8 +151,32 @@ pub fn Study() -> Element {
                 }
             };
 
+            let onkeydown = {
+                let key_answer = answer.clone();
+                move |evt: Event<KeyboardData>| {
+                    match evt.code() {
+                        Code::Space => {
+                            evt.prevent_default();
+                            let cur = revealed();
+                            revealed.set(!cur);
+                        }
+                        Code::Enter | Code::NumpadEnter => {
+                            evt.prevent_default();
+                            let mut a = key_answer.clone();
+                            a(true);
+                        }
+                        Code::Backspace => {
+                            evt.prevent_default();
+                            let mut a = key_answer.clone();
+                            a(false);
+                        }
+                        _ => {}
+                    }
+                }
+            };
+
             rsx! {
-                div { class: "page study",
+                div { class: "page study", tabindex: "-1", autofocus: true, onkeydown,
                     SessionHeader { name: cat.name.clone(), page }
                     div { class: "session-progress", "{i + 1} / {len}" }
                     match word {

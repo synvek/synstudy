@@ -106,6 +106,23 @@ CREATE TABLE examples (
     order_index INTEGER DEFAULT 0
 );
 CREATE INDEX idx_examples_word ON examples(word_id);
+
+CREATE TABLE word_roots (
+    root_key TEXT PRIMARY KEY,
+    class    TEXT DEFAULT '',
+    meaning  TEXT DEFAULT '',
+    origin   TEXT DEFAULT '',
+    synonyms TEXT DEFAULT '',
+    antonyms TEXT DEFAULT ''
+);
+
+CREATE TABLE root_words (
+    root_key    TEXT NOT NULL,
+    word_id     INTEGER NOT NULL,
+    order_index INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (root_key, word_id)
+);
+CREATE INDEX idx_root_words_word ON root_words(word_id);
 """
 
 # CC-CEDICT line:  Trad Simp [pin1 yin1] /gloss/gloss/
@@ -273,6 +290,98 @@ def build_zh_entries(conn, cedict_path):
             n += 1
     conn.commit()
     return n
+
+
+def build_fts(conn):
+    """Create an FTS5 full-text index over the words table.
+
+    Indexes the headword and its Chinese/English translation so the runtime can
+    do prefix + full-text search (and fall back to it for typo tolerance). The
+    index uses external content (`content='words'`) to avoid duplicating the
+    payload. Returns True on success, False when FTS5 is unavailable, in which
+    case the app degrades to plain LIKE search.
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute("DROP TABLE IF EXISTS words_fts")
+        cur.execute(
+            "CREATE VIRTUAL TABLE words_fts USING fts5("
+            "word, translation, content='words', content_rowid='id')")
+        cur.execute(
+            "INSERT INTO words_fts(rowid, word, translation) "
+            "SELECT id, word, translation FROM words")
+        conn.commit()
+        return True
+    except sqlite3.OperationalError as e:
+        print("  [warn] FTS5 unavailable, skipping full-text index: {}".format(e))
+        try:
+            cur.execute("DROP TABLE IF EXISTS words_fts")
+            conn.commit()
+        except sqlite3.Error:
+            pass
+        return False
+
+
+def _as_text(v):
+    """Normalise a wordroot JSON field to a string (lists become comma-joined)."""
+    if isinstance(v, list):
+        return ", ".join(str(x).strip() for x in v if str(x).strip())
+    return str(v).strip() if v is not None else ""
+
+
+def build_roots(conn, wordroot_path):
+    """Parse ECDICT `wordroot.txt` (JSON keyed by root/affix) into `word_roots`
+    and `root_words`.
+
+    Each key becomes a root entry (meaning/class/origin/synonyms/antonyms). Its
+    `example` list is linked to existing `words` rows only; markers that are not
+    real headwords (e.g. "soundless1", "Homo sapiens") are skipped. Returns
+    (root_count, link_count).
+    """
+    if not os.path.exists(wordroot_path):
+        print("  [warn] {} not found; 词根数据将为空".format(wordroot_path))
+        return 0, 0
+    import json
+    with open(wordroot_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    cur = conn.cursor()
+    ids = word_id_map(conn)
+    lower_ids = {}
+    for w, i in ids.items():
+        lower_ids.setdefault(w.strip().lower(), i)
+    root_count = 0
+    link_count = 0
+    for key, info in data.items():
+        if not isinstance(info, dict):
+            continue
+        cur.execute(
+            "INSERT OR REPLACE INTO word_roots "
+            "(root_key, class, meaning, origin, synonyms, antonyms) VALUES (?,?,?,?,?,?)",
+            (key,
+             _as_text(info.get("class")),
+             _as_text(info.get("meaning")),
+             _as_text(info.get("origin")),
+             _as_text(info.get("synonyms")),
+             _as_text(info.get("antonyms"))))
+        root_count += 1
+        order = 0
+        for ex in (info.get("example") or []):
+            name = str(ex or "").strip()
+            if not name:
+                continue
+            wid = ids.get(name)
+            if wid is None:
+                wid = lower_ids.get(name.lower())
+            if wid is None:
+                continue
+            cur.execute(
+                "INSERT OR IGNORE INTO root_words "
+                "(root_key, word_id, order_index) VALUES (?,?,?)",
+                (key, wid, order))
+            order += 1
+            link_count += 1
+    conn.commit()
+    return root_count, link_count
 
 
 def apply_cefr(conn, paths):
@@ -453,6 +562,16 @@ def main():
     ex_n = build_examples(conn, kaikki_path)
     print("  inserted {} example sentences".format(ex_n))
 
+    print("Building FTS5 index (words_fts) ...")
+    fts_ok = build_fts(conn)
+    print("  FTS5 index: {}".format(
+        "ok" if fts_ok else "unavailable (runtime falls back to LIKE)"))
+
+    wordroot_path = os.path.join(args.data_dir, "wordroot.txt")
+    print("Building word roots from {} ...".format(wordroot_path))
+    root_total, root_links = build_roots(conn, wordroot_path)
+    print("  {} roots, {} word links".format(root_total, root_links))
+
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("word_total", str(total_words)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
@@ -462,7 +581,11 @@ def main():
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("example_total", str(ex_n)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
-                ("schema_version", "4"))
+                ("fts", "1" if fts_ok else "0"))
+    cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
+                ("root_total", str(root_total)))
+    cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
+                ("schema_version", "6"))
     conn.commit()
     conn.close()
 

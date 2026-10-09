@@ -11,8 +11,48 @@
   --success: #37c98b;
   --danger: #ff6b6b;
   --warn: #ffb454;
+  --on-primary: #ffffff;
+  --chip-text: #dfe4ff;
   --radius: 12px;
   --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* Light palette: explicit choice, or System while the OS prefers light. */
+:root[data-theme="light"] {
+  --bg: #f5f6fa;
+  --bg-soft: #eceef5;
+  --panel: #ffffff;
+  --panel-2: #e9ebf3;
+  --border: #d5d9e6;
+  --text: #1c1f2b;
+  --muted: #6b7189;
+  --primary: #4a6cf7;
+  --primary-soft: #d7deff;
+  --success: #16a06a;
+  --danger: #e2483d;
+  --warn: #d98a12;
+  --on-primary: #ffffff;
+  --chip-text: #2a3160;
+  --shadow: 0 6px 24px rgba(20, 24, 40, 0.10);
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --bg: #f5f6fa;
+    --bg-soft: #eceef5;
+    --panel: #ffffff;
+    --panel-2: #e9ebf3;
+    --border: #d5d9e6;
+    --text: #1c1f2b;
+    --muted: #6b7189;
+    --primary: #4a6cf7;
+    --primary-soft: #d7deff;
+    --success: #16a06a;
+    --danger: #e2483d;
+    --warn: #d98a12;
+    --on-primary: #ffffff;
+    --chip-text: #2a3160;
+    --shadow: 0 6px 24px rgba(20, 24, 40, 0.10);
+  }
 }
 
 * { box-sizing: border-box; }
@@ -62,7 +102,7 @@ body {
   transition: background .15s, color .15s;
 }
 .nav-btn:hover { background: var(--panel); color: var(--text); }
-.nav-btn.active { background: var(--primary-soft); color: #fff; }
+.nav-btn.active { background: var(--primary-soft); color: var(--chip-text); }
 .nav-btn.gear { color: var(--muted); }
 
 /* ---------------- Layout ---------------- */
@@ -143,7 +183,7 @@ h1, h2, h3, h4 { color: var(--text); }
 .wd-v { flex: 1; }
 .wd-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .chip {
-  background: var(--primary-soft); color: #dfe4ff; padding: 3px 10px; border-radius: 999px; font-size: 12px;
+  background: var(--primary-soft); color: var(--chip-text); padding: 3px 10px; border-radius: 999px; font-size: 12px;
 }
 
 /* ---------------- 汉英 (Chinese -> English) ---------------- */
@@ -164,7 +204,7 @@ h1, h2, h3, h4 { color: var(--text); }
 .wd-cefr {
   align-self: center; margin-left: auto; font-size: 12px; font-weight: 700;
   letter-spacing: .5px; padding: 2px 9px; border-radius: 6px;
-  background: var(--primary-soft); color: #cdd4ff; border: 1px solid var(--primary);
+  background: var(--primary-soft); color: var(--chip-text); border: 1px solid var(--primary);
 }
 .wd-examples { display: flex; flex-direction: column; gap: 8px; }
 .wd-example { margin: 0; font-size: 15px; line-height: 1.5; padding-left: 12px; border-left: 3px solid var(--primary); }
@@ -200,12 +240,22 @@ h1, h2, h3, h4 { color: var(--text); }
   padding: 40px; text-align: center; max-width: 560px; margin: 30px auto;
 }
 .session-progress { text-align: center; color: var(--muted); margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+.hint { font-size: 12px; margin-top: 12px; }
 
 .card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
   padding: 40px; max-width: 560px; margin: 0 auto; text-align: center; cursor: pointer;
   box-shadow: var(--shadow); min-height: 260px; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 14px;
+  transition: transform .18s ease, box-shadow .18s ease, background .3s ease, border-color .3s ease;
+}
+.card:active { transform: scale(.99); }
+/* Reveal animation when the card flips to show the meaning. */
+.card.revealed .card-trans,
+.card.revealed .card-def { animation: card-reveal .24s ease both; }
+@keyframes card-reveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
 }
 .card-word { font-size: 40px; font-weight: 700; }
 .card-phonetic { color: var(--primary); font-size: 18px; }
@@ -235,13 +285,61 @@ h1, h2, h3, h4 { color: var(--text); }
 .sc-lbl { color: var(--muted); font-size: 13px; }
 .stats-table { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .stats-row {
-  display: grid; grid-template-columns: 1.6fr .7fr .7fr .7fr .7fr 1.4fr;
+  display: grid; grid-template-columns: 1.6fr .7fr .7fr .7fr .7fr .8fr 1.4fr;
   gap: 10px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border);
 }
 .stats-row.head { background: var(--bg-soft); color: var(--muted); font-size: 13px; border-top: none; }
 .stats-row.total { background: var(--bg-soft); font-weight: 600; }
 .sr-name { font-weight: 500; }
 .sr-bar { min-width: 120px; }
+
+/* Streak / retention / forecast cards */
+.stat-cards.triple { grid-template-columns: repeat(3, 1fr); }
+.streak-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px; display: flex; flex-direction: column; gap: 6px;
+}
+.streak-main { display: flex; align-items: baseline; gap: 8px; }
+.streak-flame { font-size: 26px; }
+.streak-num { font-size: 30px; font-weight: 700; color: var(--primary); }
+.streak-unit { color: var(--muted); font-size: 14px; }
+.streak-sub { color: var(--muted); font-size: 13px; }
+
+/* Panels (heatmap + forecast) */
+.stat-panel {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px; margin-bottom: 18px;
+}
+.stat-panel h3 { margin: 0 0 14px; font-size: 15px; }
+
+/* Heatmap */
+.heatmap-wrap { display: flex; gap: 6px; align-items: flex-start; overflow-x: auto; }
+.hm-weekdays { display: grid; grid-template-rows: repeat(7, 12px); gap: 3px; }
+.hm-wd { font-size: 9px; line-height: 12px; color: var(--muted); height: 12px; }
+.heatmap {
+  display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 12px);
+  gap: 3px;
+}
+.hm-cell { width: 12px; height: 12px; border-radius: 2px; background: var(--bg-soft); }
+.hm-cell.hm-0 { background: var(--bg-soft); border: 1px solid var(--border); }
+.hm-cell.hm-1 { background: var(--primary); opacity: .28; }
+.hm-cell.hm-2 { background: var(--primary); opacity: .48; }
+.hm-cell.hm-3 { background: var(--primary); opacity: .72; }
+.hm-cell.hm-4 { background: var(--primary); }
+.hm-cell.hm-future { background: transparent; }
+.hm-legend { display: flex; align-items: center; gap: 4px; margin-top: 12px; }
+.hm-legend-lbl { color: var(--muted); font-size: 12px; margin: 0 4px; }
+
+/* Due forecast bar chart */
+.forecast { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; align-items: end; }
+.fc-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.fc-count { font-size: 12px; color: var(--muted); }
+.fc-bar-track {
+  width: 100%; max-width: 40px; height: 120px; display: flex; align-items: flex-end;
+  background: var(--bg-soft); border-radius: 6px; overflow: hidden;
+}
+.fc-bar { width: 100%; background: var(--primary); border-radius: 6px 6px 0 0; min-height: 2px; transition: height .2s; }
+.fc-label { font-size: 12px; color: var(--muted); }
 
 /* ---------------- Settings ---------------- */
 .setting-group {
@@ -266,3 +364,58 @@ h1, h2, h3, h4 { color: var(--text); }
 .kv .v { word-break: break-all; text-align: right; }
 .confirm-inline { display: flex; gap: 10px; }
 .warn { color: var(--warn); font-size: 13px; margin-top: 8px; }
+
+/* ---------------- Wordbook (生词本) ---------------- */
+.wd-star {
+  background: transparent; border: none; cursor: pointer;
+  font-size: 22px; line-height: 1; color: var(--muted); padding: 2px 4px;
+  transition: color .15s, transform .15s;
+}
+.wd-star:hover { color: var(--warn); transform: scale(1.12); }
+.wd-star.on { color: var(--warn); }
+.wordbook .result { flex-direction: row; align-items: center; gap: 4px; padding: 4px 6px 4px 0; }
+.wb-row-main {
+  flex: 1; display: flex; flex-direction: column; gap: 2px; text-align: left;
+  background: transparent; border: none; cursor: pointer; padding: 8px 10px; color: inherit;
+}
+.wb-row-remove {
+  flex: 0 0 auto; background: transparent; border: none; cursor: pointer;
+  color: var(--muted); font-size: 14px; padding: 6px 9px; border-radius: 6px;
+}
+.wb-row-remove:hover { color: var(--danger); background: var(--panel-2); }
+
+/* ---------------- Quiz (拼写测验) ---------------- */
+.quiz-card { gap: 18px; }
+.quiz-play { font-size: 16px; padding: 12px 22px; }
+.quiz-reveal { margin-top: 6px; opacity: .9; }
+.quiz-fb { font-size: 20px; font-weight: 600; }
+.quiz-fb.ok { color: var(--success); }
+.quiz-fb.bad { color: var(--danger); }
+.quiz-input-row {
+  display: flex; gap: 12px; justify-content: center; align-items: center;
+  max-width: 560px; margin: 22px auto 0;
+}
+.quiz-input {
+  flex: 1; padding: 13px 16px; font-size: 18px; text-align: center;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); outline: none; letter-spacing: 1px;
+}
+.quiz-input:focus { border-color: var(--primary); }
+.quiz-input[readonly] { opacity: .7; }
+
+/* ---------------- TTS speak buttons ---------------- */
+.card-word-row { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.card-speak, .wd-speak, .wd-ex-speak {
+  background: transparent; border: none; cursor: pointer; color: var(--primary);
+  font-size: 18px; line-height: 1; padding: 4px 6px; border-radius: 8px;
+  transition: background .15s, transform .15s;
+}
+.card-speak:hover, .wd-speak:hover, .wd-ex-speak:hover { background: var(--panel-2); transform: scale(1.1); }
+.wd-speak { font-size: 20px; }
+.wd-ex-speak { font-size: 14px; margin-left: 8px; }
+
+/* ---------------- Roots (词根) ---------------- */
+.root-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.root-key { font-size: 28px; margin: 0; color: var(--primary); }
+.root-meaning { font-size: 17px; margin: 0; }
+.root-word-detail { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
