@@ -66,8 +66,8 @@ impl Page {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Theme {
     /// Follow the OS `prefers-color-scheme`.
-    #[default]
     System,
+    #[default]
     Light,
     Dark,
 }

@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::components::nav_bar::NavBar;
+use crate::components::nav_bar::{MobileTabBar, MoreSheet, NavBar};
 use crate::db::{self, dict_repo::DictRepo, progress_repo::ProgressRepo};
 use crate::models::Category;
 use crate::pages;
@@ -74,6 +74,8 @@ pub fn App() -> Element {
 #[component]
 fn AppShell() -> Element {
     let mut page: Signal<Page> = use_context();
+    // Mobile-only: whether the "我的" secondary-destination sheet is open.
+    let mut show_more = use_signal(|| false);
 
     // Global navigation shortcuts: Cmd/Ctrl+1..9 jump between pages (in the
     // order of `Page::shortcut_pages`), Cmd/Ctrl+K jumps to the dictionary
@@ -124,6 +126,10 @@ fn AppShell() -> Element {
                     Page::Stats => rsx! { pages::stats::Stats {} },
                     Page::Settings => rsx! { pages::settings::SettingsPage {} },
                 }
+            }
+            MobileTabBar { on_more: move |_| show_more.set(true) }
+            if show_more() {
+                MoreSheet { on_close: move |_| show_more.set(false) }
             }
         }
     }

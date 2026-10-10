@@ -27,9 +27,9 @@ pub fn text_lines(text: &str, class: &'static str) -> Element {
 }
 
 /// Turn ECDICT `exchange` data ("d:went/p:gone/3:goes/i:going") into readable
-/// Chinese labels.
-pub fn format_exchange(exchange: &str) -> String {
-    let mut parts: Vec<String> = Vec::new();
+/// `(label, value)` pairs for the word-form grid.
+pub fn exchange_pairs(exchange: &str) -> Vec<(&'static str, String)> {
+    let mut parts: Vec<(&'static str, String)> = Vec::new();
     for item in exchange.split('/') {
         let item = item.trim();
         if item.is_empty() {
@@ -50,11 +50,11 @@ pub fn format_exchange(exchange: &str) -> String {
             "s" => "复数",
             "0" => "原形(变体)",
             "1" => "变体",
-            other => other,
+            _ => continue,
         };
         if !v.is_empty() {
-            parts.push(format!("{label}: {v}"));
+            parts.push((label, v.to_string()));
         }
     }
-    parts.join("  ·  ")
+    parts
 }

@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::components::{format_exchange, text_lines};
+use crate::components::{exchange_pairs, text_lines};
 use crate::db::dict_repo::DictRepo;
 use crate::db::progress_repo::ProgressRepo;
 use crate::models::Word;
@@ -15,7 +15,7 @@ pub fn WordDetail(word: Word) -> Element {
     let mut page: Signal<Page> = use_context();
     let mut sel_root: Signal<Option<String>> = use_context();
     let tags = word.tag_labels();
-    let exchange = format_exchange(&word.exchange);
+    let forms = exchange_pairs(&word.exchange);
     let cefr = word.cefr.clone();
     let examples = dict.get_examples(word.id, 3);
     let graded_sentences = dict.sentences_for_word(word.id, None, 5);
@@ -45,67 +45,81 @@ pub fn WordDetail(word: Word) -> Element {
     rsx! {
         div { class: "word-detail",
             div { class: "wd-head",
-                h2 { class: "wd-word", "{word.word}" }
-                if !word.phonetic.is_empty() {
-                    span { class: "wd-phonetic", "{word.phonetic}" }
-                }
-                if settings().tts_enabled {
-                    button {
-                        class: "wd-speak",
-                        title: "朗读",
-                        onclick: move |_| tts::speak(&tts_word, settings().tts_rate),
-                        "\u{1f50a}"
+                div { class: "wd-head-main",
+                    div { class: "wd-title-row",
+                        h2 { class: "wd-word", "{word.word}" }
+                        if word.has_cefr() {
+                            span { class: "wd-cefr", "{cefr}" }
+                        }
+                    }
+                    div { class: "wd-meta",
+                        if !word.phonetic.is_empty() {
+                            span { class: "wd-phonetic", "英 {word.phonetic}" }
+                        }
+                        if settings().tts_enabled {
+                            button {
+                                class: "wd-speak",
+                                title: "朗读",
+                                onclick: move |_| tts::speak(&tts_word, settings().tts_rate),
+                                "\u{1f50a}"
+                            }
+                        }
                     }
                 }
                 button {
-                    class: if starred() { "wd-star on" } else { "wd-star" },
+                    class: if starred() { "wd-star-btn on" } else { "wd-star-btn" },
                     title: if starred() { "从生词本移除" } else { "加入生词本" },
                     onclick: move |_| {
                         let now = progress.toggle_star(star_word_id, now_ts());
                         starred.set(now);
                     },
-                    if starred() { "\u{2605}" } else { "\u{2606}" }
-                }
-                if word.has_cefr() {
-                    span { class: "wd-cefr", "{cefr}" }
+                    span { if starred() { "\u{2605}" } else { "\u{2606}" } }
+                    span { if starred() { "已加入" } else { "加入生词本" } }
                 }
             }
 
             div { class: "wd-sec",
                 h4 { "释义" }
                 div { class: "wd-trans", {text_lines(&word.translation, "line")} }
+                if !word.definition.trim().is_empty() {
+                    div { class: "wd-def-box",
+                        div { class: "label", "英文释义" }
+                        div { class: "wd-def", {text_lines(&word.definition, "line")} }
+                    }
+                }
             }
 
-            if !word.definition.trim().is_empty() {
+            if !forms.is_empty() {
                 div { class: "wd-sec",
-                    h4 { "英文释义" }
-                    div { class: "wd-def", {text_lines(&word.definition, "line")} }
+                    h4 { "词形变化" }
+                    div { class: "wd-forms",
+                        for (i, (lbl, val)) in forms.iter().enumerate() {
+                            div { key: "{i}", class: "wd-form",
+                                div { class: "label", "{lbl}" }
+                                div { class: "val", "{val}" }
+                            }
+                        }
+                    }
                 }
             }
 
-            if !word.pos.trim().is_empty() {
-                div { class: "wd-row",
-                    span { class: "wd-k", "词性分布" }
-                    span { class: "wd-v", "{word.pos}" }
-                }
-            }
-
-            if !exchange.is_empty() {
-                div { class: "wd-row",
-                    span { class: "wd-k", "词形变化" }
-                    span { class: "wd-v", "{exchange}" }
-                }
-            }
-
-            div { class: "wd-row",
-                span { class: "wd-k", "词频排名" }
-                span { class: "wd-v", "BNC {word.bnc} · COCA {word.frq}" }
-            }
-
-            if !tags.is_empty() {
+            div { class: "wd-sec",
+                h4 { "考试标签" }
                 div { class: "wd-tags",
-                    for t in tags.iter() {
-                        span { key: "{t}", class: "chip", "{t}" }
+                    if tags.is_empty() {
+                        span { class: "muted", "暂无考试标签" }
+                    } else {
+                        for t in tags.iter() {
+                            span { key: "{t}", class: "chip", "{t}" }
+                        }
+                    }
+                    if word.bnc > 0 || word.frq > 0 {
+                        span { class: "wd-freq",
+                            "词频 BNC "
+                            b { "{word.bnc}" }
+                            " · COCA "
+                            b { "{word.frq}" }
+                        }
                     }
                 }
             }
@@ -122,7 +136,7 @@ pub fn WordDetail(word: Word) -> Element {
                             let tts_on = settings().tts_enabled;
                             rsx! {
                                 p { key: "{i}", class: "wd-example",
-                                    span { class: "wd-example-text", "{text}" }
+                                    span { class: "wd-example-text", {highlighted(&text, &word.word)} }
                                     if tts_on {
                                         button {
                                             class: "wd-ex-speak",
@@ -164,7 +178,7 @@ pub fn WordDetail(word: Word) -> Element {
                                             span { class: "chip chip-sm chip-cefr", "CEFR {cefr}" }
                                         }
                                     }
-                                    p { class: "wd-example-text", "{text}" }
+                                    p { class: "wd-example-text", {highlighted(&text, &word.word)} }
                                     if !zh.is_empty() {
                                         p { class: "wd-example-zh muted", "{zh}" }
                                     }
@@ -207,5 +221,33 @@ pub fn WordDetail(word: Word) -> Element {
                 }
             }
         }
+    }
+}
+
+/// Render `text` with the first case-insensitive occurrence of `target` wrapped
+/// in a highlight span. Falls back to plain text when `target` is absent or the
+/// match is not on a clean ASCII boundary.
+fn highlighted(text: &str, target: &str) -> Element {
+    if target.is_empty() {
+        return rsx! { "{text}" };
+    }
+    // Only slice when lowercasing preserves byte length (ASCII), so the index
+    // found in the lowercased string maps onto the original.
+    let lower = text.to_lowercase();
+    if lower.len() != text.len() {
+        return rsx! { "{text}" };
+    }
+    match lower.find(&target.to_lowercase()) {
+        Some(pos) if pos + target.len() <= text.len() => {
+            let before = &text[..pos];
+            let matched = &text[pos..pos + target.len()];
+            let after = &text[pos + target.len()..];
+            rsx! {
+                "{before}"
+                span { class: "hl", "{matched}" }
+                "{after}"
+            }
+        }
+        _ => rsx! { "{text}" },
     }
 }

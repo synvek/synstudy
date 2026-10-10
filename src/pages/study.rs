@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::components::category_tile::{category_code, category_visual};
 use crate::components::progress_bar::ProgressBar;
 use crate::components::word_card::WordCard;
 use crate::components::word_detail::WordDetail;
@@ -244,6 +245,22 @@ pub fn Study() -> Element {
             };
             let begin_disabled = current_no.is_none() && new_left == 0;
 
+            // Overview card visuals + progress percentage.
+            let (abbr, tone, group) = category_visual(&cat.key);
+            let hero_tone = if started > 0 { "tone-grad" } else { tone };
+            let code = category_code(&cat.key);
+            let pct = if total > 0 {
+                started as f64 / total as f64 * 100.0
+            } else {
+                0.0
+            };
+            let pct_str = if pct > 0.0 && pct < 1.0 {
+                format!("{:.2}", pct)
+            } else {
+                format!("{:.0}", pct)
+            };
+            let plan_total = if locked { total_rounds } else { planned };
+
             let onkeydown = {
                 let mut begin = begin.clone();
                 move |evt: Event<KeyboardData>| {
@@ -256,159 +273,247 @@ pub fn Study() -> Element {
 
             rsx! {
                 div { class: "page study", tabindex: "-1", autofocus: true, onkeydown,
-                    SessionHeader { name: cat.name.clone(), page }
-
-                    // Overall progress.
-                    div { class: "study-overview",
-                        div { class: "study-overview-top",
-                            h2 { "{cat.name}" }
-                            span { class: "muted", "已学 {started} / {total} · 未学 {new_left} · 待复习 {due}" }
-                        }
-                        ProgressBar { value: started_i, max: cat.word_count }
-                        if locked {
-                            p { class: "muted plan-summary",
-                                "学习计划：共 {total_rounds} 轮 · 已完成 {done_rounds} 轮"
-                            }
-                        }
+                    nav { class: "breadcrumb",
+                        a { onclick: move |_| page.set(Page::Categories), "词库" }
+                        span { class: "sep", "\u{203a}" }
+                        span { class: "cur", "{cat.name}" }
                     }
 
-                    // Round setup: ordering + per-round size. Locked once the
-                    // plan is generated so the round contents never drift.
-                    div { class: if locked { "study-setup locked" } else { "study-setup" },
-                        div { class: "setup-row",
-                            span { class: "setup-label", "学习顺序" }
-                            div { class: "seg",
-                                for o in StudyOrder::all() {
-                                    button {
-                                        key: "{o:?}",
-                                        class: if cur.study_order == *o { "seg-btn active" } else { "seg-btn" },
-                                        disabled: locked,
-                                        onclick: {
-                                            let mut persist = persist.clone();
-                                            let o = *o;
-                                            move |_| {
-                                                let mut s = settings.read().clone();
-                                                s.study_order = o;
-                                                persist(s);
-                                            }
-                                        },
-                                        "{o.label()}"
-                                    }
-                                }
-                            }
-                        }
-                        div { class: "setup-row",
-                            span { class: "setup-label", "每轮数量" }
-                            div { class: "seg",
-                                for n in STUDY_SIZES {
-                                    button {
-                                        key: "{n}",
-                                        class: if cur.study_size == n { "seg-btn active" } else { "seg-btn" },
-                                        disabled: locked,
-                                        onclick: {
-                                            let mut persist = persist.clone();
-                                            move |_| {
-                                                let mut s = settings.read().clone();
-                                                s.study_size = n;
-                                                persist(s);
-                                            }
-                                        },
-                                        "{n}"
-                                    }
-                                }
-                            }
-                        }
-                        if locked {
-                            p { class: "muted hint lock-note",
-                                "轮次计划已生成，顺序与每轮数量不可再修改；如需调整请先「清除轮次记录」。"
-                            }
-                        }
-                    }
-
-                    // Actions.
-                    div { class: "study-actions",
-                        button {
-                            class: "btn primary big",
-                            disabled: begin_disabled,
-                            onclick: {
-                                let mut begin = begin.clone();
-                                move |_| begin()
-                            },
-                            "{begin_label}"
-                        }
-                        button {
-                            class: "btn",
-                            onclick: move |_| {
-                                detail.set(None);
-                                show_all.set(true);
-                            },
-                            "查看全部单词"
-                        }
-                        if locked {
-                            if confirm_clear() {
-                                button {
-                                    class: "btn danger",
-                                    onclick: {
-                                        let progress = progress.clone();
-                                        let cat_id = cat.id;
-                                        let mut revision = revision;
-                                        move |_| {
-                                            progress.clear_rounds(cat_id);
-                                            revision += 1;
-                                            confirm_clear.set(false);
+                    // Overview card.
+                    section { class: "panel wb-hero",
+                        div { class: "wb-hero-top",
+                            div { class: "wb-hero-id",
+                                div { class: "bookicon lg {hero_tone}", "{abbr}" }
+                                div {
+                                    div { class: "wb-hero-title",
+                                        h1 { "{cat.name}" }
+                                        if started > 0 {
+                                            span { class: "badge-status", "学习中" }
                                         }
-                                    },
-                                    "确认清除（保留学习进度）"
+                                    }
+                                    p { class: "wb-hero-sub", "{code} / {group}词库" }
                                 }
-                                button {
-                                    class: "btn ghost",
-                                    onclick: move |_| confirm_clear.set(false),
-                                    "取消"
+                            }
+                            div { class: "wb-stats",
+                                div { class: "wb-stat",
+                                    p { class: "lbl", "已学单词" }
+                                    p { class: "val primary", "{started}" small { " / {total}" } }
                                 }
-                            } else {
-                                button {
-                                    class: "btn ghost danger-text",
-                                    onclick: move |_| confirm_clear.set(true),
-                                    "清除轮次记录"
+                                div { class: "wb-stat",
+                                    p { class: "lbl", "未学单词" }
+                                    p { class: "val", "{new_left}" }
+                                }
+                                div { class: "wb-stat",
+                                    p { class: "lbl", "待复习" }
+                                    p { class: "val warn", "{due}" }
                                 }
                             }
                         }
-                        if !locked {
-                            p { class: "muted hint", "快捷键：Enter / 空格 开始学习" }
+                        div { class: "wb-hero-progress",
+                            div { class: "wb-hero-progress-top",
+                                span { "词库学习进度" }
+                                span { class: "pct", "{pct_str}%" }
+                            }
+                            ProgressBar { value: started_i, max: cat.word_count }
+                        }
+                    }
+
+                    // Config + plan columns.
+                    div { class: "study-cols",
+                        section { class: "panel study-config",
+                            div { class: "panel-head",
+                                span { class: "ico", "\u{1f39a}" }
+                                h2 { "学习配置" }
+                            }
+                            p { class: "panel-sub", "按照自己的节奏，安排每一轮学习。" }
+
+                            div { class: "config-row",
+                                div { class: "cfg-label",
+                                    h3 { "学习顺序" }
+                                    p { "选择单词的排列方式" }
+                                }
+                                div { class: "seg",
+                                    for o in StudyOrder::all() {
+                                        button {
+                                            key: "{o:?}",
+                                            class: if cur.study_order == *o { "seg-btn active" } else { "seg-btn" },
+                                            disabled: locked,
+                                            onclick: {
+                                                let mut persist = persist.clone();
+                                                let o = *o;
+                                                move |_| {
+                                                    let mut s = settings.read().clone();
+                                                    s.study_order = o;
+                                                    persist(s);
+                                                }
+                                            },
+                                            "{o.label()}"
+                                        }
+                                    }
+                                }
+                            }
+
+                            div { class: "config-row",
+                                div { class: "cfg-label",
+                                    h3 { "每轮数量" }
+                                    p { "每轮计划学习的单词数" }
+                                }
+                                div { class: "seg",
+                                    for n in STUDY_SIZES {
+                                        button {
+                                            key: "{n}",
+                                            class: if cur.study_size == n { "seg-btn active" } else { "seg-btn" },
+                                            disabled: locked,
+                                            onclick: {
+                                                let mut persist = persist.clone();
+                                                move |_| {
+                                                    let mut s = settings.read().clone();
+                                                    s.study_size = n;
+                                                    persist(s);
+                                                }
+                                            },
+                                            "{n}"
+                                        }
+                                    }
+                                }
+                            }
+
+                            div { class: "config-note",
+                                span { class: "ico", "\u{24d8}" }
+                                if locked {
+                                    p { "轮次计划已生成，学习顺序与每轮数量不可再修改；如需调整请先在下方「清除轮次记录」。" }
+                                } else {
+                                    p { "学习计划将根据未学单词、学习顺序和每轮数量自动生成。继续学习会从当前轮次开始，保留你的学习进度。" }
+                                }
+                            }
+
+                            div { class: "config-actions",
+                                button {
+                                    class: "btn primary big",
+                                    disabled: begin_disabled,
+                                    onclick: {
+                                        let mut begin = begin.clone();
+                                        move |_| begin()
+                                    },
+                                    "{begin_label}"
+                                }
+                                button {
+                                    class: "btn",
+                                    onclick: move |_| {
+                                        detail.set(None);
+                                        show_all.set(true);
+                                    },
+                                    "查看全部单词"
+                                }
+                            }
+                            if !locked {
+                                p { class: "config-lock", "快捷键：Enter / 空格 开始学习" }
+                            }
+                        }
+
+                        aside { class: "panel study-plan",
+                            div { class: "panel-head",
+                                h2 { "我的学习计划" }
+                            }
+                            p { class: "panel-sub", "一点一滴，让词汇成为你的积累。" }
+                            div { class: "plan-num",
+                                span { class: "big", "{done_rounds}" }
+                                span { class: "of", "/ {plan_total} 轮已完成" }
+                            }
+                            ProgressBar { value: done_rounds as i64, max: plan_total as i64 }
+                            div { class: "plan-legend",
+                                span { "共 {plan_total} 轮" }
+                                span { "已完成 {done_rounds} 轮" }
+                            }
+                            div { class: "plan-tip",
+                                div { class: "t", "\u{1f4a1} 保持小步前进" }
+                                p { "不必一次记住所有单词。完成一轮，就是向目标更近一步。" }
+                            }
                         }
                     }
 
                     // Round plan / history — every generated round, ascending.
                     if !rounds_asc.is_empty() {
-                        div { class: "round-history",
-                            h3 { "轮次记录" }
-                            for r in rounds_asc.iter() {
-                                div {
-                                    key: "{r.id}",
-                                    class: "round-row",
-                                    div { class: "round-row-main",
-                                        span { class: "round-no", "第 {r.number} 轮" }
-                                        span { class: "chip chip-sm", "{r.order_label()}" }
-                                        span { class: "round-res", "认识 {r.known_count} · 不认识 {r.unknown_count} / {r.size}" }
-                                    }
-                                    div { class: "round-row-side",
-                                        if r.finished_at.is_some() {
-                                            span { class: "round-state done", "已完成" }
-                                        } else if current_id == Some(r.id) {
-                                            span { class: "round-state ongoing", "已答 {r.answered()} / {r.size}" }
+                        section { class: "panel round-section",
+                            div { class: "round-section-head",
+                                h2 { "轮次记录" span { class: "muted", "当前学习计划" } }
+                                if locked {
+                                    div { class: "head-actions",
+                                        if confirm_clear() {
+                                            button {
+                                                class: "btn danger",
+                                                onclick: {
+                                                    let progress = progress.clone();
+                                                    let cat_id = cat.id;
+                                                    let mut revision = revision;
+                                                    move |_| {
+                                                        progress.clear_rounds(cat_id);
+                                                        revision += 1;
+                                                        confirm_clear.set(false);
+                                                    }
+                                                },
+                                                "确认清除"
+                                            }
+                                            button {
+                                                class: "btn ghost",
+                                                onclick: move |_| confirm_clear.set(false),
+                                                "取消"
+                                            }
                                         } else {
-                                            span { class: "round-state pending", "未开始" }
+                                            button {
+                                                class: "btn danger-outline",
+                                                onclick: move |_| confirm_clear.set(true),
+                                                "清除轮次记录"
+                                            }
                                         }
-                                        button {
-                                            class: "btn small ghost",
-                                            onclick: {
-                                                let rid = r.id;
-                                                move |_| {
+                                    }
+                                }
+                            }
+                            div { class: "round-grid",
+                                for r in rounds_asc.iter() {
+                                    {
+                                        let done = r.finished_at.is_some();
+                                        let ongoing = !done && current_id == Some(r.id);
+                                        let state_cls = if done {
+                                            "done"
+                                        } else if ongoing {
+                                            "ongoing"
+                                        } else {
+                                            "pending"
+                                        };
+                                        let state_label = if done {
+                                            "已完成"
+                                        } else if ongoing {
+                                            "进行中"
+                                        } else {
+                                            "未开始"
+                                        };
+                                        let cell_class = format!("round-cell {state_cls}");
+                                        let num_str = format!("{:02}", r.number);
+                                        let tip = if done {
+                                            format!("认识 {} · 不认识 {} / {}", r.known_count, r.unknown_count, r.size)
+                                        } else if ongoing {
+                                            format!("已答 {} / {}", r.answered(), r.size)
+                                        } else {
+                                            format!("{} · {}", r.order_label(), r.size)
+                                        };
+                                        let rid = r.id;
+                                        let rno = r.number;
+                                        rsx! {
+                                            button {
+                                                key: "{rid}",
+                                                class: "{cell_class}",
+                                                title: "{tip}",
+                                                onclick: move |_| {
                                                     detail.set(None);
                                                     open_round.set(Some(rid));
+                                                },
+                                                div { class: "round-cell-main",
+                                                    span { class: "round-cell-num", "{num_str}" }
+                                                    span { class: "round-cell-name", "第 {rno} 轮" }
                                                 }
-                                            },
-                                            "查看"
+                                                span { class: "round-state {state_cls}", "{state_label}" }
+                                            }
                                         }
                                     }
                                 }

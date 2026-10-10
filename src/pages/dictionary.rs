@@ -37,6 +37,24 @@ impl SearchMode {
             SearchMode::Zh2En => "输入中文或拼音开始查询",
         }
     }
+
+    fn eyebrow(self) -> &'static str {
+        match self {
+            SearchMode::En2Zh => "YOUR EVERYDAY WORD COMPANION",
+            SearchMode::Zh2En => "REVERSE LOOKUP · 汉英词典",
+        }
+    }
+}
+
+/// Right-hand caption of the results panel header.
+fn result_status(empty_query: bool, no_hits: bool) -> &'static str {
+    if empty_query {
+        "等待查询"
+    } else if no_hits {
+        "无匹配"
+    } else {
+        "相关词条"
+    }
 }
 
 #[component]
@@ -130,40 +148,63 @@ pub fn Dictionary() -> Element {
         }
     };
 
+    // The 查询 button opens the first matching entry (same as pressing Enter).
+    let open_first = {
+        let en = en_list.clone();
+        let zh = zh_list.clone();
+        move |_| {
+            if cur_mode == SearchMode::En2Zh {
+                if let Some(w) = en.first() {
+                    selected.set(Some(w.clone()));
+                }
+            } else if let Some(e) = zh.first() {
+                selected_zh.set(Some(e.clone()));
+            }
+        }
+    };
+
     rsx! {
         div { class: "page dictionary",
-            div { class: "page-head",
-                h1 { "{cur_mode.title()}" }
-                span { class: "muted", "{count_label}" }
+            div { class: "page-hero",
+                div {
+                    div { class: "eyebrow", "{cur_mode.eyebrow()}" }
+                    h1 { "{cur_mode.title()}" }
+                    p { class: "sub", "{count_label}" }
+                }
+                div { class: "pill-group",
+                    button {
+                        class: if cur_mode == SearchMode::En2Zh { "pill active" } else { "pill" },
+                        onclick: move |_| {
+                            mode.set(SearchMode::En2Zh);
+                            query.set(String::new());
+                            selected.set(None);
+                            selected_zh.set(None);
+                        },
+                        "英汉"
+                    }
+                    button {
+                        class: if cur_mode == SearchMode::Zh2En { "pill active" } else { "pill" },
+                        onclick: move |_| {
+                            mode.set(SearchMode::Zh2En);
+                            query.set(String::new());
+                            selected.set(None);
+                            selected_zh.set(None);
+                        },
+                        "汉英"
+                    }
+                }
             }
 
-            div { class: "seg",
-                button {
-                    class: if cur_mode == SearchMode::En2Zh { "seg-btn active" } else { "seg-btn" },
-                    onclick: move |_| {
-                        mode.set(SearchMode::En2Zh);
-                        query.set(String::new());
-                        selected.set(None);
-                        selected_zh.set(None);
-                    },
-                    "英汉"
+            div { class: "search-box",
+                svg {
+                    class: "search-ico", width: "20", height: "20",
+                    view_box: "0 0 24 24", fill: "none", stroke: "currentColor",
+                    stroke_width: "2", stroke_linecap: "round",
+                    circle { cx: "11", cy: "11", r: "7" }
+                    path { d: "m21 21-4.3-4.3" }
                 }
-                button {
-                    class: if cur_mode == SearchMode::Zh2En { "seg-btn active" } else { "seg-btn" },
-                    onclick: move |_| {
-                        mode.set(SearchMode::Zh2En);
-                        query.set(String::new());
-                        selected.set(None);
-                        selected_zh.set(None);
-                    },
-                    "汉英"
-                }
-            }
-
-            div { class: "search-bar",
                 input {
                     r#type: "text",
-                    class: "search-input",
                     placeholder: "{cur_mode.placeholder()}",
                     value: "{query}",
                     autofocus: true,
@@ -181,12 +222,18 @@ pub fn Dictionary() -> Element {
                         "✕"
                     }
                 }
+                span { class: "search-kbd", "Enter ↵" }
+                button { class: "btn primary", onclick: open_first, "查询" }
             }
 
             div { class: "dict-body",
                 if cur_mode == SearchMode::Zh2En {
                     // --- 汉英 (Chinese -> English) ---
                     div { class: "dict-results",
+                        div { class: "dict-results-head",
+                            span { "查询结果" }
+                            span { class: "muted", "{result_status(query().trim().is_empty(), zh_list.is_empty())}" }
+                        }
                         if query().trim().is_empty() {
                             p { class: "muted pad", "{cur_mode.empty_hint()}" }
                         } else if zh_list.is_empty() {
@@ -230,7 +277,17 @@ pub fn Dictionary() -> Element {
                             },
                             None => rsx! {
                                 div { class: "empty-detail",
-                                    p { class: "muted", "从左侧选择一个词条查看详情" }
+                                    div { class: "empty-illo",
+                                        svg {
+                                            width: "38", height: "38", view_box: "0 0 24 24",
+                                            fill: "none", stroke: "currentColor", stroke_width: "1.6",
+                                            stroke_linecap: "round",
+                                            circle { cx: "11", cy: "11", r: "7" }
+                                            path { d: "m21 21-4.3-4.3" }
+                                        }
+                                    }
+                                    h3 { "从左侧选择一个词条查看详情" }
+                                    p { "词语、拼音，或一个好奇的念头" br {} "从搜索开始探索。" }
                                 }
                             }
                         }
@@ -238,6 +295,10 @@ pub fn Dictionary() -> Element {
                 } else {
                     // --- 英汉 (English -> Chinese) ---
                     div { class: "dict-results",
+                        div { class: "dict-results-head",
+                            span { "查询结果" }
+                            span { class: "muted", "{result_status(query().trim().is_empty(), en_list.is_empty())}" }
+                        }
                         if query().trim().is_empty() {
                             p { class: "muted pad", "{cur_mode.empty_hint()}" }
                         } else if en_list.is_empty() {
@@ -263,7 +324,22 @@ pub fn Dictionary() -> Element {
                             Some(w) => rsx! { WordDetail { key: "{w.id}", word: w } },
                             None => rsx! {
                                 div { class: "empty-detail",
-                                    p { class: "muted", "从左侧选择一个单词查看详情" }
+                                    div { class: "empty-illo",
+                                        svg {
+                                            width: "38", height: "38", view_box: "0 0 24 24",
+                                            fill: "none", stroke: "currentColor", stroke_width: "1.6",
+                                            stroke_linecap: "round", stroke_linejoin: "round",
+                                            path { d: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20" }
+                                            path { d: "M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" }
+                                        }
+                                    }
+                                    h3 { "每一个单词，都值得理解" }
+                                    p { "从左侧选择一个单词查看详情" }
+                                    div { class: "empty-feats",
+                                        span { span { class: "ck", "✓" } "中英释义" }
+                                        span { span { class: "ck", "✓" } "地道发音" }
+                                        span { span { class: "ck", "✓" } "实用例句" }
+                                    }
                                 }
                             }
                         }
