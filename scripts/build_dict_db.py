@@ -12,6 +12,8 @@ Inputs (place under data/):
                                         Tatoeba renamed "en" to ISO639-3 "eng")
   data/tatoeba/cmn_sentences.tsv.bz2  Tatoeba Mandarin sentences (optional)
   data/tatoeba/links.tsv.bz2          Tatoeba cross-language links (optional)
+  data/opencc/TSCharacters.txt        OpenCC Traditional->Simplified char map
+  data/opencc/TSPhrases.txt           OpenCC Traditional->Simplified phrase map
 
 Output:
   assets/synstudy.db         Bundled with the app, opened read-only at runtime.
@@ -701,15 +703,67 @@ def _iter_tatoeba_en(path):
             yield parts[0], parts[2]
 
 
+def _load_t2s_maps(opencc_dir):
+    """Load OpenCC Traditional->Simplified maps (TSCharacters / TSPhrases).
+
+    Returns (char_map, phrase_map, max_phrase_len). Maps are empty when the
+    files are unavailable, in which case translations keep their original
+    glyph forms (Tatoeba/cmn translations are predominantly Traditional).
+    """
+    def _load(name):
+        path = os.path.join(opencc_dir, name) if opencc_dir else None
+        m = {}
+        if not path or not os.path.exists(path):
+            return m
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) != 2:
+                    continue
+                # Several targets are context-dependent in OpenCC; the first
+                # is its default pick and suffices for plain sentences.
+                m[parts[0]] = parts[1].split(" ")[0]
+        return m
+    cmap = _load("TSCharacters.txt")
+    pmap = _load("TSPhrases.txt")
+    mlen = max((len(k) for k in pmap), default=1)
+    return cmap, pmap, mlen
+
+
+def _t2s(text, cmap, pmap, mlen):
+    """Convert Traditional Chinese text to Simplified (greedy longest phrase)."""
+    if not cmap:
+        return text
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        for L in range(min(mlen, n - i), 1, -1):
+            w = text[i:i + L]
+            if w in pmap:
+                out.append(pmap[w])
+                i += L
+                break
+        else:
+            ch = text[i]
+            out.append(cmap.get(ch, ch))
+            i += 1
+    return "".join(out)
+
+
 def build_sentence_bank(conn, en_path, cmn_path=None, links_path=None,
-                        total_cap=SENT_TOTAL_CAP, seed=20260101):
+                        total_cap=SENT_TOTAL_CAP, seed=20260101, t2s=None):
     """Build `sentence_bank` + `sentence_words` from the Tatoeba English dump.
 
     Each sentence is tokenized, scored against the exam-tagged vocabulary
     (see `_score_sentence`) and only kept if it contains at least one 考纲词.
     When Chinese (`cmn`) + `links` files are provided, an available Chinese
     translation is attached for the sentence-translation quiz mode. Sentences
-    with a translation are preferred when the cap kicks in.
+    with a translation are preferred when the cap kicks in. If `t2s` (the
+    tuple returned by `_load_t2s_maps`) is given, translations are converted
+    from Traditional to Simplified Chinese before insertion.
 
     Returns (kept_count, with_translation_count).
     """
@@ -764,6 +818,8 @@ def build_sentence_bank(conn, en_path, cmn_path=None, links_path=None,
     kept = 0
     with_zh = 0
     for sid, text, (exams, cefr_min, tier, wid_map), zh_text, tokens in candidates:
+        if zh_text and t2s:
+            zh_text = _t2s(zh_text, *t2s)
         cur.execute(
             "INSERT INTO sentence_bank "
             "(text, translation, source, source_id, cefr_min, exam_levels, difficulty, word_count) "
@@ -868,10 +924,18 @@ def main():
     if not os.path.exists(links_path):
         links_path = os.path.join(tatoeba_dir, "links.tsv")
     print("Building sentence bank (Tatoeba) from {} ...".format(en_path))
+    t2s = _load_t2s_maps(os.path.join(args.data_dir, "opencc"))
+    if not t2s[0]:
+        print("  [warn] data/opencc/TSCharacters.txt not found; "
+              "中文译文将保留原始字形（多为繁体）")
+    else:
+        print("  t2s maps: {} chars / {} phrases (OpenCC, Apache-2.0)".format(
+            len(t2s[0]), len(t2s[1])))
     sent_total, sent_zh = build_sentence_bank(
         conn, en_path,
         cmn_path if os.path.exists(cmn_path) else None,
-        links_path if os.path.exists(links_path) else None)
+        links_path if os.path.exists(links_path) else None,
+        t2s=t2s)
     print("  inserted {} graded sentences ({} with Chinese translation)".format(
         sent_total, sent_zh))
 

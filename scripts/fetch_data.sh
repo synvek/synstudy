@@ -14,6 +14,7 @@
 #   * CEFR-J            (openlanguageprofiles/olp-en-cefrj, 需引用署名) -> data/cefrj/*.csv
 #   * Wiktionary/kaikki.org ( kaikki.org-dictionary-English.jsonl, CC BY-SA 4.0) -> data/kaikki.en.jsonl  (例句)
 #   * Tatoeba           (tatoeba.org, CC-BY 2.0 FR)  -> data/tatoeba/*.tsv.bz2  (分级句库)
+#   * OpenCC            (BYVoid/OpenCC, Apache-2.0)  -> data/opencc/TS*.txt  (繁→简转换表)
 #   * qwerty-learner    (RealKai42, GPL-3.0)       -> data/dicts/PEPXiaoXue*.json, GaoKao_3500.json
 #   * TEM4/TEM8 lists   (kajweb/dict, word list only; definitions come from MIT ECDICT)
 #
@@ -28,7 +29,8 @@ DATA="$ROOT/data"
 DICTS="$DATA/dicts"
 CEFRJ="$DATA/cefrj"
 TATOEBA="$DATA/tatoeba"
-mkdir -p "$DICTS" "$CEFRJ" "$TATOEBA"
+OPENCC="$DATA/opencc"
+mkdir -p "$DICTS" "$CEFRJ" "$TATOEBA" "$OPENCC"
 
 RAW_ECDICT="https://raw.githubusercontent.com/skywind3000/ECDICT/master"
 RAW_QWERTY="https://raw.githubusercontent.com/RealKai42/qwerty-learner/master/public/dicts"
@@ -41,6 +43,10 @@ KAIKKI="https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.json
 TATOEBA_EN="https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2"
 TATOEBA_CMN="https://downloads.tatoeba.org/exports/per_language/cmn/cmn_sentences.tsv.bz2"
 TATOEBA_LINKS="https://downloads.tatoeba.org/exports/links.tar.bz2"
+# OpenCC t2s dictionaries (the S->T named files are the opposite direction;
+# t2s uses TS*). jsdelivr mirrors the GitHub repo and is reachable where
+# raw.githubusercontent.com is not.
+OPENCC_TS="https://cdn.jsdelivr.net/gh/BYVoid/OpenCC@master/data/dictionary"
 
 fetch() {  # fetch <url> <out>
   local url="$1" out="$2"
@@ -83,6 +89,10 @@ fi
 echo "[5/8] Tatoeba sentence bank (CC-BY 2.0 FR; graded example sentences)"
 fetch "$TATOEBA_EN"  "$TATOEBA/en_sentences.tsv.bz2"
 fetch "$TATOEBA_CMN" "$TATOEBA/cmn_sentences.tsv.bz2"
+# Tatoeba/cmn translations are mostly Traditional; the builder converts them
+# to Simplified with these OpenCC tables (Apache-2.0).
+fetch "$OPENCC_TS/TSCharacters.txt" "$OPENCC/TSCharacters.txt"
+fetch "$OPENCC_TS/TSPhrases.txt"    "$OPENCC/TSPhrases.txt"
 if [[ "${SKIP_TATOEBA_LINKS:-0}" == "1" ]]; then
   echo "  ! SKIP_TATOEBA_LINKS=1 set; 句库将不包含中文翻译"
 else
