@@ -15,8 +15,11 @@
 #   * Wiktionary/kaikki.org ( kaikki.org-dictionary-English.jsonl, CC BY-SA 4.0) -> data/kaikki.en.jsonl  (例句)
 #   * Tatoeba           (tatoeba.org, CC-BY 2.0 FR)  -> data/tatoeba/*.tsv.bz2  (分级句库)
 #   * OpenCC            (BYVoid/OpenCC, Apache-2.0)  -> data/opencc/TS*.txt  (繁→简转换表)
-#   * qwerty-learner    (RealKai42, GPL-3.0)       -> data/dicts/PEPXiaoXue*.json, GaoKao_3500.json
-#   * TEM4/TEM8 lists   (kajweb/dict, word list only; definitions come from MIT ECDICT)
+#
+# NOTE: 小学/专四/专八 word lists are NOT fetched here. The previous sources
+# (qwerty-learner, GPL-3.0; kajweb/dict, no licence) were removed for licence
+# compliance. Drop your own official-syllabus lists at data/dicts/{xiaoxue,
+# tem4,tem8}.json before building; those categories are skipped when absent.
 #
 # Set SKIP_TATOEBA_LINKS=1 to skip the large (~200MB) cross-language links
 # archive; the sentence bank still builds, just without Chinese translations.
@@ -33,8 +36,6 @@ OPENCC="$DATA/opencc"
 mkdir -p "$DICTS" "$CEFRJ" "$TATOEBA" "$OPENCC"
 
 RAW_ECDICT="https://raw.githubusercontent.com/skywind3000/ECDICT/master"
-RAW_QWERTY="https://raw.githubusercontent.com/RealKai42/qwerty-learner/master/public/dicts"
-RAW_KAJWEB="https://raw.githubusercontent.com/kajweb/dict/master/book"
 RAW_CEFRJ="https://raw.githubusercontent.com/openlanguageprofiles/olp-en-cefrj/master"
 CEDICT_GZ="https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
 KAIKKI="https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl"
@@ -60,11 +61,11 @@ fetch() {  # fetch <url> <out>
   curl -sS -L -f --retry 3 --retry-delay 2 -o "$out" "$url"
 }
 
-echo "[1/8] ECDICT master dictionary (MIT)"
+echo "[1/5] ECDICT master dictionary (MIT)"
 fetch "$RAW_ECDICT/ecdict.csv"   "$DATA/ecdict.csv"
 fetch "$RAW_ECDICT/wordroot.txt" "$DATA/wordroot.txt"
 
-echo "[2/8] CC-CEDICT Chinese-English dictionary (CC-BY-SA 4.0)"
+echo "[2/5] CC-CEDICT Chinese-English dictionary (CC-BY-SA 4.0)"
 if [[ -s "$DATA/cedict.txt" ]]; then
   echo "  = exists: cedict.txt"
 else
@@ -73,12 +74,12 @@ else
   gunzip -f "$DATA/cedict.txt.gz"
 fi
 
-echo "[3/8] CEFR-J vocabulary profile (A1-C2 levels; requires citation)"
+echo "[3/5] CEFR-J vocabulary profile (A1-C2 levels; requires citation)"
 fetch "$RAW_CEFRJ/cefrj-vocabulary-profile-1.5.csv"         "$CEFRJ/cefrj-vocabulary-profile-1.5.csv"
 fetch "$RAW_CEFRJ/octanove-vocabulary-profile-c1c2-1.0.csv" "$CEFRJ/octanove-vocabulary-profile-c1c2-1.0.csv"
 fetch "$RAW_CEFRJ/README.md"                               "$CEFRJ/olp-en-cefrj-README.md"
 
-echo "[4/8] Wiktionary example sentences (kaikki.org, CC BY-SA 4.0; ~3.1GB)"
+echo "[4/5] Wiktionary example sentences (kaikki.org, CC BY-SA 4.0; ~3.1GB)"
 if [[ -s "$DATA/kaikki.en.jsonl" ]]; then
   echo "  = exists: kaikki.en.jsonl"
 else
@@ -86,7 +87,7 @@ else
   curl -sS -L -f --retry 3 --retry-delay 2 -C - -o "$DATA/kaikki.en.jsonl" "$KAIKKI"
 fi
 
-echo "[5/8] Tatoeba sentence bank (CC-BY 2.0 FR; graded example sentences)"
+echo "[5/5] Tatoeba sentence bank (CC-BY 2.0 FR; graded example sentences)"
 fetch "$TATOEBA_EN"  "$TATOEBA/en_sentences.tsv.bz2"
 fetch "$TATOEBA_CMN" "$TATOEBA/cmn_sentences.tsv.bz2"
 # Tatoeba/cmn translations are mostly Traditional; the builder converts them
@@ -111,48 +112,6 @@ else
     fi
   fi
 fi
-
-echo "[6/8] qwerty-learner graded lists (小学 PEP + 高考3500)"
-for f in PEPXiaoXue3_1_T PEPXiaoXue3_2_T PEPXiaoXue4_1_T PEPXiaoXue4_2_T \
-         PEPXiaoXue5_1_T PEPXiaoXue5_2_T PEPXiaoXue6_1_T PEPXiaoXue6_2_T \
-         GaoKao_3500; do
-  fetch "$RAW_QWERTY/$f.json" "$DICTS/$f.json"
-done
-
-echo "[7/8] TEM4 / TEM8 syllabus word lists (words only)"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-fetch "$RAW_KAJWEB/1521164653685_Level4_2.zip" "$TMP/level4.zip"
-fetch "$RAW_KAJWEB/1521164663794_Level8_2.zip" "$TMP/level8.zip"
-unzip -o -q "$TMP/level4.zip" -d "$TMP/l4"
-unzip -o -q "$TMP/level8.zip" -d "$TMP/l8"
-
-echo "[8/8] Extracting headwords -> data/dicts/tem{4,8}.json"
-python3 - "$TMP" "$DICTS" <<'PY'
-import json, os, sys
-tmp, dicts = sys.argv[1], sys.argv[2]
-def extract(src, out):
-    words, seen = [], set()
-    with open(src, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                o = json.loads(line)
-            except Exception:
-                continue
-            w = (o.get("headWord") or "").strip()
-            if not w or w in seen:
-                continue
-            seen.add(w)
-            words.append({"name": w})
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump(words, f, ensure_ascii=False)
-    print("  -> {}: {} words".format(os.path.basename(out), len(words)))
-extract(os.path.join(tmp, "l4", "Level4_2.json"), os.path.join(dicts, "tem4.json"))
-extract(os.path.join(tmp, "l8", "Level8_2.json"), os.path.join(dicts, "tem8.json"))
-PY
 
 echo
 echo "Done. Now build the database:"

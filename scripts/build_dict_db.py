@@ -5,8 +5,11 @@
 Inputs (place under data/):
   data/ecdict.csv            ECDICT master dictionary (UTF-8). Source:
                              https://github.com/skywind3000/ECDICT  (MIT)
-  data/dicts/*.json          qwerty-learner style word lists. Source:
-                             https://github.com/RealKai42/qwerty-learner
+  data/dicts/*.json          Optional syllabus word lists (xiaoxue.json /
+                             tem4.json / tem8.json) for 小学/专四/专八.
+                             Bring your own official-syllabus lists; the
+                             categories are skipped when the files are absent.
+                             (GPL/unlicensed third-party lists were removed.)
   data/tatoeba/en_sentences.tsv.bz2   Tatoeba English sentences (CC-BY 2.0 FR;
                                         fetched from the per_language/eng export —
                                         Tatoeba renamed "en" to ISO639-3 "eng")
@@ -41,20 +44,21 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #   key     stable identifier used by the app
 #   name    display name (Chinese)
 #   source  "tag"  -> selected from ECDICT `tag` column (ordered A-Z)
-#           "json" -> selected from qwerty-learner JSON lists (original order)
+#           "json" -> selected from a local JSON word list (original order);
+#                     the category is skipped when no list file is present
 #   tag     ECDICT tag token (source == "tag")
 #   globs   candidate JSON filename patterns (source == "json"), tried in order
 CATEGORIES = [
     {"key": "xiaoxue",  "name": "小学",         "source": "json",
-     "globs": ["xiaoxue.json", "PEPXiaoXue*.json"]},
+     "globs": ["xiaoxue.json"]},
     {"key": "chuzhong", "name": "初中",         "source": "tag", "tag": "zk"},
     {"key": "gaozhong", "name": "高中",         "source": "tag", "tag": "gk"},
     {"key": "cet4",     "name": "大学英语四级", "source": "tag", "tag": "cet4"},
     {"key": "cet6",     "name": "大学英语六级", "source": "tag", "tag": "cet6"},
     {"key": "tem4",     "name": "英语专业四级", "source": "json",
-     "globs": ["tem4.json", "TEM4*.json"]},
+     "globs": ["tem4.json"]},
     {"key": "tem8",     "name": "英语专业八级", "source": "json",
-     "globs": ["tem8.json", "TEM8*.json"]},
+     "globs": ["tem8.json"]},
     {"key": "toefl",    "name": "托福",         "source": "tag", "tag": "toefl"},
     {"key": "gre",      "name": "GRE",         "source": "tag", "tag": "gre"},
 ]
@@ -882,6 +886,14 @@ def main():
             count = build_json_category(conn, cat, args.data_dir, ids)
         else:
             count = build_tag_category(conn, cat, ids)
+        if count == 0:
+            # No word list supplied (json categories expect the user's own
+            # official-syllabus file): drop the empty category so the app
+            # does not render a useless tile.
+            cur.execute("DELETE FROM categories WHERE id = ?", (cat["rowid"],))
+            conn.commit()
+            print("  {:<10} {:<8}   (skipped: no word list)".format(cat["key"], cat["name"]))
+            continue
         cur.execute("UPDATE categories SET word_count = ? WHERE id = ?",
                     (count, cat["rowid"]))
         conn.commit()

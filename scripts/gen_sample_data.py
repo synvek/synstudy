@@ -4,14 +4,14 @@
 
 This writes:
   data/ecdict.csv          -- ECDICT-format master dictionary (subset)
-  data/dicts/xiaoxue.json  -- qwerty-learner-format list (小学)
-  data/dicts/tem4.json     -- qwerty-learner-format list (专四)
-  data/dicts/tem8.json     -- qwerty-learner-format list (专八)
+  data/dicts/xiaoxue.json  -- JSON word list (小学), self-authored sample
+  data/dicts/tem4.json     -- JSON word list (专四), self-authored sample
+  data/dicts/tem8.json     -- JSON word list (专八), self-authored sample
 
 The sample is only for development/testing/demo. For production, replace these
 files with the real datasets (see README):
-  * ECDICT          https://github.com/skywind3000/ECDICT   (ecdict.csv, MIT)
-  * qwerty-learner  https://github.com/RealKai42/qwerty-learner (public/dicts/*.json)
+  * ECDICT   https://github.com/skywind3000/ECDICT   (ecdict.csv, MIT)
+  * 小学/专四/专八 word lists: bring your own official-syllabus JSON lists.
 
 Entry tuple layout:
   (word, phonetic, translation_zh, definition_en, pos, category_key)
@@ -27,7 +27,7 @@ DICTS = os.path.join(DATA, "dicts")
 
 # category_key -> (display_name, source)
 #   source == "tag"  : derived from the ECDICT `tag` column in build_dict_db.py
-#   source == "json" : derived from a qwerty-learner style JSON list
+#   source == "json" : derived from a local JSON word list (official-syllabus style)
 CATEGORIES = [
     ("xiaoxue",  "小学",        "json"),
     ("chuzhong", "初中",        "tag"),
