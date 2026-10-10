@@ -193,6 +193,42 @@ impl ExamFilter {
     }
 }
 
+/// Ordering applied when picking the next batch of new words in a study round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum StudyOrder {
+    /// Front-to-back of the category's `order_index`.
+    #[default]
+    Sequential,
+    /// Back-to-front of the category's `order_index`.
+    Reverse,
+    /// Shuffled among the remaining new words.
+    Random,
+}
+
+impl StudyOrder {
+    pub fn label(self) -> &'static str {
+        match self {
+            StudyOrder::Sequential => "正序",
+            StudyOrder::Reverse => "倒序",
+            StudyOrder::Random => "随机",
+        }
+    }
+
+    pub fn all() -> &'static [StudyOrder] {
+        &[
+            StudyOrder::Sequential,
+            StudyOrder::Reverse,
+            StudyOrder::Random,
+        ]
+    }
+
+    /// Whether the underlying `category_word_ids` fetch should be reversed
+    /// (`Random` fetches forward and shuffles afterwards).
+    pub fn reverse_fetch(self) -> bool {
+        matches!(self, StudyOrder::Reverse)
+    }
+}
+
 /// Serde helper so boolean preferences can default to `true`.
 fn default_true() -> bool {
     true
@@ -201,10 +237,14 @@ fn default_true() -> bool {
 /// User preferences, persisted as JSON in the progress database.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
-    /// How many new words to introduce per study session.
+    /// How many new words to introduce per spelling-quiz round.
     pub words_per_session: usize,
-    /// Study/review word lists in reverse order.
-    pub reverse: bool,
+    /// Ordering used when a study round picks new words.
+    #[serde(default)]
+    pub study_order: StudyOrder,
+    /// How many new words each study round introduces (20 / 30 / 40 / 50).
+    #[serde(default = "default_study_size")]
+    pub study_size: usize,
     /// Color scheme. `#[serde(default)]` keeps older saved settings parseable.
     #[serde(default)]
     pub theme: Theme,
@@ -238,11 +278,16 @@ fn default_tts_rate() -> f32 {
     1.0
 }
 
+fn default_study_size() -> usize {
+    20
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             words_per_session: 20,
-            reverse: false,
+            study_order: StudyOrder::default(),
+            study_size: default_study_size(),
             theme: Theme::default(),
             quiz_mode: QuizMode::default(),
             quiz_exam_filter: ExamFilter::default(),
@@ -257,6 +302,11 @@ impl Default for Settings {
 }
 
 pub const SETTINGS_KEY: &str = "settings";
+
+/// Key under which the last picked study/review category id is remembered, so
+/// reopening the app drops straight back into that word list instead of asking
+/// to choose again. An empty value means "nothing selected yet".
+pub const LAST_CATEGORY_KEY: &str = "last_category";
 
 /// Seconds in a UTC day.
 pub const DAY_SECS: i64 = 24 * 60 * 60;

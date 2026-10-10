@@ -41,6 +41,8 @@ pub fn Roots() -> Element {
         None => Vec::new(),
     };
     let sel = sel_word().clone();
+    // Copyable selected-word id for highlighting chips without moving `sel`.
+    let sel_word_id = sel.as_ref().map(|w| w.id);
 
     rsx! {
         div { class: "page roots",
@@ -93,6 +95,19 @@ pub fn Roots() -> Element {
                     div { class: "dict-detail",
                         match cur_root {
                             Some(r) => rsx! {
+                                if let Some(sw) = sel {
+                                    div { class: "wd-sec root-word-detail",
+                                        div { class: "root-detail-top",
+                                            button {
+                                                class: "btn small ghost",
+                                                onclick: move |_| sel_word.set(None),
+                                                "← 返回词根"
+                                            }
+                                            span { class: "muted", "词根 {r.root_key} · 相关单词释义" }
+                                        }
+                                        WordDetail { key: "{sw.id}", word: sw }
+                                    }
+                                }
                                 div { class: "root-head",
                                     h2 { class: "root-key", "{r.root_key}" }
                                     if !r.class.is_empty() {
@@ -130,7 +145,7 @@ pub fn Roots() -> Element {
                                             for w in words.iter() {
                                                 button {
                                                     key: "{w.id}",
-                                                    class: "chip chip-link",
+                                                    class: if sel_word_id == Some(w.id) { "chip chip-link active" } else { "chip chip-link" },
                                                     onclick: {
                                                         let w = w.clone();
                                                         move |_| sel_word.set(Some(w.clone()))
@@ -139,11 +154,6 @@ pub fn Roots() -> Element {
                                                 }
                                             }
                                         }
-                                    }
-                                }
-                                if let Some(sw) = sel {
-                                    div { class: "wd-sec root-word-detail",
-                                        WordDetail { key: "{sw.id}", word: sw }
                                     }
                                 }
                             },

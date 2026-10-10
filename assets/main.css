@@ -418,7 +418,9 @@ h1, h2, h3, h4 { color: var(--text); }
 .root-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
 .root-key { font-size: 28px; margin: 0; color: var(--primary); }
 .root-meaning { font-size: 17px; margin: 0; }
-.root-word-detail { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.root-word-detail { margin-bottom: 18px; }
+.root-detail-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.chip-link.active { border-color: var(--primary); background: var(--panel-2); color: var(--text); }
 
 /* ---------------- Sentence-bank quiz (选词填空 / 句意选择 / 听音辨词) ---------------- */
 .seg.wrap { flex-wrap: wrap; }
@@ -456,3 +458,70 @@ h1, h2, h3, h4 { color: var(--text); }
 .wd-example-sent { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-left: 3px solid var(--primary); }
 .wd-example-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 2px; }
 .wd-example-zh { font-size: 13px; margin: 0; }
+
+/* ---- Study page: overview / setup pickers / round history ---- */
+.study-overview { margin-bottom: 18px; }
+.study-overview-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.study-overview-top h2 { margin: 0; font-size: 20px; }
+
+.study-setup {
+  display: flex; flex-direction: column; gap: 14px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px; margin-bottom: 22px;
+}
+.setup-row { display: flex; align-items: center; gap: 12px; }
+.setup-label { color: var(--muted); font-size: 14px; min-width: 72px; }
+.study-setup .btn.big { align-self: flex-start; }
+.study-setup .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.round-history { display: flex; flex-direction: column; gap: 8px; }
+.round-history h3 { margin: 0 0 4px; font-size: 16px; }
+.round-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px;
+}
+.round-row-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.round-no { font-weight: 600; }
+.round-res { color: var(--muted); font-size: 13px; }
+.round-row-side { display: flex; align-items: center; gap: 10px; }
+.round-state { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.round-state.done { color: var(--success); background: rgba(55, 201, 139, .15); }
+.round-state.ongoing { color: var(--warn); background: rgba(255, 180, 84, .15); }
+.round-state.pending { color: var(--muted); background: var(--panel-2); }
+
+/* Plan summary line under the overview bar */
+.plan-summary { margin: 8px 0 0; font-size: 13px; }
+
+/* Locked setup panel: pickers are disabled once the plan is generated. */
+.study-setup.locked { opacity: .78; }
+.study-setup.locked .seg-btn:disabled { opacity: .5; cursor: not-allowed; }
+.lock-note { margin: 0; }
+
+/* Action button row (start / view-all / clear). */
+.study-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+.study-actions .btn.big { align-self: auto; }
+.study-actions .hint { flex-basis: 100%; margin: 2px 0 0; }
+.btn.danger-text { color: var(--danger); border-color: rgba(255, 107, 107, .4); }
+
+/* Full word-list progress badges (WordList pane). */
+.ws-badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; flex-shrink: 0; }
+.ws-badge.ws.new { color: var(--muted); background: var(--panel-2); }
+.ws-badge.ws.learning { color: var(--warn); background: rgba(255, 180, 84, .15); }
+.ws-badge.ws.reviewing { color: var(--primary); background: rgba(96, 165, 250, .16); }
+.ws-badge.ws.mastered { color: var(--success); background: rgba(55, 201, 139, .15); }
+
+/* ---- Round review pane ---- */
+.round-review .dict-results { max-height: calc(100vh - 160px); }
+.round-result { cursor: pointer; align-items: center; gap: 10px; flex-direction: row; }
+.round-pos {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
+  background: var(--panel-2); color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.round-result .result-word { min-width: 96px; }
+.round-result .result-trans { flex: 1; }
+.round-flag { font-size: 12px; padding: 2px 8px; border-radius: 999px; flex-shrink: 0; }
+.round-flag.ok { color: var(--success); background: rgba(55, 201, 139, .15); }
+.round-flag.bad { color: var(--danger); background: rgba(255, 107, 107, .15); }
+.round-flag.pending { color: var(--muted); background: var(--panel-2); }

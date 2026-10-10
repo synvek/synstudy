@@ -4,7 +4,7 @@ use crate::components::nav_bar::NavBar;
 use crate::db::{self, dict_repo::DictRepo, progress_repo::ProgressRepo};
 use crate::models::Category;
 use crate::pages;
-use crate::state::{Page, Settings, SETTINGS_KEY};
+use crate::state::{Page, Settings, LAST_CATEGORY_KEY, SETTINGS_KEY};
 
 const CSS: &str = include_str!("../assets/main.css");
 
@@ -12,14 +12,26 @@ const CSS: &str = include_str!("../assets/main.css");
 #[allow(non_snake_case)]
 pub fn App() -> Element {
     // Writable progress store (creates schema on first run).
-    use_context_provider(|| ProgressRepo::new(db::progress_db_path()));
+    let progress = use_context_provider(|| ProgressRepo::new(db::progress_db_path()));
 
     // Read-only dictionary store (path resolved once).
-    use_context_provider(|| DictRepo::from_resolved(db::resolve_dict_db()));
+    let dict = use_context_provider(|| DictRepo::from_resolved(db::resolve_dict_db()));
 
     // Navigation + selection + settings.
     use_context_provider(|| Signal::new(Page::Dictionary));
-    use_context_provider(|| Signal::new(Option::<Category>::None));
+    // Selected word list, restored from the last pick so Study/Review reopen
+    // where the user left off instead of prompting to choose again.
+    use_context_provider({
+        let progress = progress.clone();
+        let dict = dict.clone();
+        move || {
+            let id = progress
+                .get_setting(LAST_CATEGORY_KEY)
+                .and_then(|v| v.parse::<i64>().ok());
+            let cat = id.and_then(|id| dict.categories().into_iter().find(|c| c.id == id));
+            Signal::new(cat)
+        }
+    });
     // Currently selected word root (shared so WordDetail can deep-link to it).
     use_context_provider(|| Signal::new(Option::<String>::None));
     use_context_provider(|| {
@@ -30,6 +42,18 @@ pub fn App() -> Element {
             .unwrap_or_default();
         Signal::new(settings)
     });
+
+    // Persist the active selection whenever it changes so the choice survives a
+    // restart. Only `selected` is tracked here; the write hits the KV store and
+    // never mutates a signal, so there is no feedback loop.
+    let selected: Signal<Option<Category>> = use_context();
+    {
+        let progress = progress.clone();
+        use_effect(move || match selected() {
+            Some(c) => progress.set_setting(LAST_CATEGORY_KEY, &c.id.to_string()),
+            None => progress.set_setting(LAST_CATEGORY_KEY, ""),
+        });
+    }
 
     // Reflect the color-scheme preference onto <html data-theme="..."> so the
     // CSS variables in main.css switch between light and dark palettes.

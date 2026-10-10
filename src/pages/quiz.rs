@@ -99,7 +99,7 @@ fn SpellingQuiz() -> Element {
                     .map(|c| progress.weak_word_ids(c, 200))
                     .unwrap_or_default(),
                 Source::Category => cat_id
-                    .map(|c| dict.category_word_ids(c, s.reverse))
+                    .map(|c| dict.category_word_ids(c, false))
                     .unwrap_or_default(),
             };
             let ids: Vec<i64> = ids.into_iter().take(per).collect();

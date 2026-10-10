@@ -285,6 +285,45 @@ impl WordProgress {
     }
 }
 
+/// One study round: a fixed batch of new words introduced together, with the
+/// 认识/不认识 result recorded per word so a finished round can be reviewed
+/// later. Persisted in the writable progress database (`study_round` /
+/// `study_round_word`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StudyRound {
+    pub id: i64,
+    pub category_id: i64,
+    /// 1-based round number within the category.
+    pub number: i64,
+    /// Ordering used when the round was started: `seq` / `reverse` / `random`.
+    pub order_mode: String,
+    /// How many words the round introduced.
+    pub size: i64,
+    pub created_at: i64,
+    /// Set once every word is answered; `None` while still in progress.
+    pub finished_at: Option<i64>,
+    /// Words answered 认识.
+    pub known_count: i64,
+    /// Words answered 不认识.
+    pub unknown_count: i64,
+}
+
+impl StudyRound {
+    /// How many words in the round already have a recorded result.
+    pub fn answered(&self) -> i64 {
+        self.known_count + self.unknown_count
+    }
+
+    /// Human-readable ordering label matching the round's stored `order_mode`.
+    pub fn order_label(&self) -> &'static str {
+        match self.order_mode.as_str() {
+            "reverse" => "倒序",
+            "random" => "随机",
+            _ => "正序",
+        }
+    }
+}
+
 /// Aggregate statistics for a category.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CategoryStats {

@@ -40,7 +40,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Category definition:
 #   key     stable identifier used by the app
 #   name    display name (Chinese)
-#   source  "tag"  -> selected from ECDICT `tag` column (ordered by frequency)
+#   source  "tag"  -> selected from ECDICT `tag` column (ordered A-Z)
 #           "json" -> selected from qwerty-learner JSON lists (original order)
 #   tag     ECDICT tag token (source == "tag")
 #   globs   candidate JSON filename patterns (source == "json"), tried in order
@@ -286,15 +286,20 @@ def build_json_category(conn, cat, data_dir, ids):
 
 
 def build_tag_category(conn, cat, ids):
-    """Insert category_words for a tag-sourced category, ordered by frequency."""
+    """Insert category_words for a tag-sourced category, ordered A-Z.
+
+    ECDICT's `tag` lists carry no canonical textbook order, so the words are
+    sorted alphabetically (case-insensitive). That makes the app's 正序/倒序
+    modes behave as learners expect (A→Z / Z→A); a raw frequency ranking reads
+    as scrambled and is intentionally not used here.
+    """
     tag = cat["tag"]
     cur = conn.cursor()
     # match the tag as a whole token within the space-separated tag column
     cur.execute(
         "SELECT id FROM words "
         "WHERE (' ' || tag || ' ') LIKE ? "
-        "ORDER BY CASE WHEN frq > 0 THEN frq ELSE 99999999 END, "
-        "         CASE WHEN bnc > 0 THEN bnc ELSE 99999999 END, word",
+        "ORDER BY word COLLATE NOCASE, id",
         ("% " + tag + " %",))
     rows = cur.fetchall()
     for order_index, (wid,) in enumerate(rows):

@@ -2,9 +2,12 @@ use dioxus::prelude::*;
 
 use crate::db::{dict_repo::DictRepo, progress_repo::ProgressRepo};
 use crate::models::Category;
-use crate::state::{ExamFilter, QuizMode, Settings, Theme, SETTINGS_KEY};
+use crate::state::{ExamFilter, QuizMode, Settings, StudyOrder, Theme, SETTINGS_KEY};
 use crate::srs::Scheduler;
 use crate::tts;
+
+/// Choices offered for the per-round study word count.
+const STUDY_SIZES: [usize; 4] = [20, 30, 40, 50];
 
 #[component]
 pub fn SettingsPage() -> Element {
@@ -38,69 +41,48 @@ pub fn SettingsPage() -> Element {
                 h3 { "学习" }
 
                 div { class: "setting-row",
-                    label { "每轮学习单词数" }
-                    div { class: "stepper",
-                        button {
-                            class: "btn small",
-                            onclick: {
-                                let mut persist = persist.clone();
-                                let cur = cur.clone();
-                                move |_| {
-                                    let mut s = cur.clone();
-                                    s.words_per_session = s.words_per_session.saturating_sub(5).max(1);
-                                    persist(s);
-                                }
-                            },
-                            "−"
-                        }
-                        input {
-                            r#type: "number",
-                            class: "num-input",
-                            min: "1",
-                            max: "200",
-                            value: "{cur.words_per_session}",
-                            oninput: {
-                                let mut persist = persist.clone();
-                                move |e| {
-                                    if let Ok(n) = e.value().parse::<usize>() {
+                    label { "学习顺序" }
+                    div { class: "seg",
+                        for o in StudyOrder::all() {
+                            button {
+                                key: "{o:?}",
+                                class: if cur.study_order == *o { "seg-btn active" } else { "seg-btn" },
+                                onclick: {
+                                    let mut persist = persist.clone();
+                                    let o = *o;
+                                    move |_| {
                                         let mut s = settings.read().clone();
-                                        s.words_per_session = n.clamp(1, 200);
+                                        s.study_order = o;
                                         persist(s);
                                     }
-                                }
+                                },
+                                "{o.label()}"
                             }
-                        }
-                        button {
-                            class: "btn small",
-                            onclick: {
-                                let mut persist = persist.clone();
-                                let cur = cur.clone();
-                                move |_| {
-                                    let mut s = cur.clone();
-                                    s.words_per_session = (s.words_per_session + 5).min(200);
-                                    persist(s);
-                                }
-                            },
-                            "+"
                         }
                     }
                 }
 
                 div { class: "setting-row",
-                    label { "倒序学习（从词库末尾开始）" }
-                    input {
-                        r#type: "checkbox",
-                        checked: cur.reverse,
-                        onchange: {
-                            let mut persist = persist.clone();
-                            move |e| {
-                                let mut s = settings.read().clone();
-                                s.reverse = e.data().checked();
-                                persist(s);
+                    label { "每轮学习单词数" }
+                    div { class: "seg",
+                        for n in STUDY_SIZES {
+                            button {
+                                key: "{n}",
+                                class: if cur.study_size == n { "seg-btn active" } else { "seg-btn" },
+                                onclick: {
+                                    let mut persist = persist.clone();
+                                    move |_| {
+                                        let mut s = settings.read().clone();
+                                        s.study_size = n;
+                                        persist(s);
+                                    }
+                                },
+                                "{n}"
                             }
                         }
                     }
                 }
+                p { class: "muted hint", "学习顺序与每轮数量会记住，也可在学习页顶随时切换。随机顺序每轮重新打散。" }
             }
 
             section { class: "setting-group",

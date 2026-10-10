@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use rusqlite::{params, Connection};
 
-use crate::models::{CategoryStats, ProgressStatus, WordProgress};
+use crate::models::{CategoryStats, ProgressStatus, StudyRound, WordProgress};
 use crate::state::{compute_streaks, day_index};
 
 /// Sequential schema migrations, applied in order and tracked by
@@ -58,6 +58,28 @@ CREATE INDEX IF NOT EXISTS idx_starred_added ON starred(added_at);
 ALTER TABLE word_progress ADD COLUMN stability  REAL    NOT NULL DEFAULT 0;
 ALTER TABLE word_progress ADD COLUMN difficulty REAL    NOT NULL DEFAULT 0;
 ALTER TABLE word_progress ADD COLUMN scheduler  INTEGER NOT NULL DEFAULT 0;
+",
+    // v4: study rounds (a batch of new words introduced together) so a
+    // finished round can be reviewed later.
+    "
+CREATE TABLE IF NOT EXISTS study_round (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_id INTEGER NOT NULL,
+    number      INTEGER NOT NULL,
+    order_mode  TEXT    NOT NULL DEFAULT 'seq',
+    size        INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL DEFAULT 0,
+    finished_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS study_round_word (
+    round_id INTEGER NOT NULL,
+    word_id  INTEGER NOT NULL,
+    pos      INTEGER NOT NULL DEFAULT 0,
+    known    INTEGER,
+    PRIMARY KEY (round_id, word_id)
+);
+CREATE INDEX IF NOT EXISTS idx_round_cat ON study_round(category_id, number);
+CREATE INDEX IF NOT EXISTS idx_roundword_round ON study_round_word(round_id, pos);
 ",
 ];
 
@@ -465,6 +487,159 @@ impl ProgressRepo {
             .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>())
             .unwrap_or_default()
     }
+
+    // ---------------- Study rounds ----------------
+
+    /// Materialize the entire study plan at once: split `words` into
+    /// consecutive chunks of `size` and persist every chunk as its own round
+    /// inside a single transaction, so all rounds are visible up front and can
+    /// be reviewed at any time. Round numbers continue from the category's
+    /// current count. Returns the new round ids in ascending order.
+    pub fn create_rounds_batch(
+        &self,
+        category_id: i64,
+        order_mode: &str,
+        words: &[i64],
+        size: usize,
+        now: i64,
+    ) -> Vec<i64> {
+        let size = size.max(1);
+        let mut conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let tx = match conn.transaction() {
+            Ok(t) => t,
+            Err(_) => return Vec::new(),
+        };
+        let mut number: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM study_round WHERE category_id=?1",
+                params![category_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let mut ids = Vec::new();
+        for chunk in words.chunks(size) {
+            number += 1;
+            let inserted = tx.execute(
+                "INSERT INTO study_round (category_id, number, order_mode, size, created_at) \
+                 VALUES (?1,?2,?3,?4,?5)",
+                params![category_id, number, order_mode, chunk.len() as i64, now],
+            );
+            if inserted.is_err() {
+                continue;
+            }
+            let round_id = tx.last_insert_rowid();
+            for (pos, wid) in chunk.iter().enumerate() {
+                let _ = tx.execute(
+                    "INSERT OR IGNORE INTO study_round_word (round_id, word_id, pos) VALUES (?1,?2,?3)",
+                    params![round_id, wid, pos as i64],
+                );
+            }
+            ids.push(round_id);
+        }
+        let _ = tx.commit();
+        ids
+    }
+
+    /// Record the 认识/不认识 result for one word in a round.
+    pub fn set_round_result(&self, round_id: i64, word_id: i64, known: bool) {
+        if let Ok(conn) = self.conn() {
+            let _ = conn.execute(
+                "INSERT INTO study_round_word (round_id, word_id, known) VALUES (?1,?2,?3) \
+                 ON CONFLICT(round_id, word_id) DO UPDATE SET known=excluded.known",
+                params![round_id, word_id, known as i64],
+            );
+        }
+    }
+
+    /// Mark a round complete at `now`.
+    pub fn finish_round(&self, round_id: i64, now: i64) {
+        if let Ok(conn) = self.conn() {
+            let _ = conn.execute(
+                "UPDATE study_round SET finished_at=?2 WHERE id=?1",
+                params![round_id, now],
+            );
+        }
+    }
+
+    /// Remove every round (and its word rows) recorded for `category_id`,
+    /// unlocking the order/size pickers so a fresh plan can be generated. Word
+    /// progress (`word_progress`) is intentionally left untouched.
+    pub fn clear_rounds(&self, category_id: i64) {
+        if let Ok(conn) = self.conn() {
+            let _ = conn.execute(
+                "DELETE FROM study_round_word WHERE round_id IN \
+                 (SELECT id FROM study_round WHERE category_id=?1)",
+                params![category_id],
+            );
+            let _ = conn.execute(
+                "DELETE FROM study_round WHERE category_id=?1",
+                params![category_id],
+            );
+        }
+    }
+
+    /// All rounds for a category, newest first, with per-round 认识/不认识
+    /// counts aggregated from `study_round_word`.
+    pub fn list_rounds(&self, category_id: i64) -> Vec<StudyRound> {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let sql = "SELECT r.id, r.category_id, r.number, r.order_mode, r.size, \
+                    r.created_at, r.finished_at, \
+                    COALESCE(SUM(CASE WHEN w.known = 1 THEN 1 ELSE 0 END), 0), \
+                    COALESCE(SUM(CASE WHEN w.known = 0 THEN 1 ELSE 0 END), 0) \
+                   FROM study_round r \
+                   LEFT JOIN study_round_word w ON w.round_id = r.id \
+                   WHERE r.category_id = ?1 \
+                   GROUP BY r.id \
+                   ORDER BY r.number DESC";
+        let mut stmt = match conn.prepare(sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt
+            .query_map(params![category_id], |r| {
+                Ok(StudyRound {
+                    id: r.get(0)?,
+                    category_id: r.get(1)?,
+                    number: r.get(2)?,
+                    order_mode: r.get(3)?,
+                    size: r.get(4)?,
+                    created_at: r.get(5)?,
+                    finished_at: r.get(6)?,
+                    known_count: r.get(7)?,
+                    unknown_count: r.get(8)?,
+                })
+            })
+            .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
+        rows.unwrap_or_default()
+    }
+
+    /// A round's words as `(word_id, known)` ordered by their position in the
+    /// round. `known` is `None` for words not yet answered.
+    pub fn round_words(&self, round_id: i64) -> Vec<(i64, Option<bool>)> {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let mut stmt = match conn.prepare(
+            "SELECT word_id, known FROM study_round_word \
+             WHERE round_id=?1 ORDER BY pos ASC",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        stmt.query_map(params![round_id], |r| {
+            let known: Option<i64> = r.get(1)?;
+            Ok((r.get::<_, i64>(0)?, known.map(|v| v != 0)))
+        })
+        .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>())
+        .unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
@@ -688,6 +863,77 @@ mod tests {
         assert_eq!(f[2], 1); // day 102 == today + 2
         assert_eq!(f.iter().sum::<i64>(), 3); // the far-out word is excluded
 
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn study_round_lifecycle_records_results_and_order() {
+        let path = temp_path("round");
+        let repo = ProgressRepo::new(path.clone());
+        // Empty round list initially.
+        assert!(repo.list_rounds(3).is_empty());
+        // Round 1 seeds three words in order.
+        let r1 = repo.create_rounds_batch(3, "seq", &[101, 102, 103], 3, 1000)[0];
+        // Results: 101 known, 102 unknown, 103 unanswered.
+        repo.set_round_result(r1, 101, true);
+        repo.set_round_result(r1, 102, false);
+        // A second round numbers as 2.
+        let _r2 = repo.create_rounds_batch(3, "random", &[201], 3, 2000)[0];
+
+        let rounds = repo.list_rounds(3);
+        assert_eq!(rounds.len(), 2);
+        // Newest first -> round 2 then round 1.
+        assert_eq!(rounds[0].number, 2);
+        assert_eq!(rounds[1].number, 1);
+        assert_eq!(rounds[1].size, 3);
+        assert_eq!(rounds[1].known_count, 1);
+        assert_eq!(rounds[1].unknown_count, 1);
+        assert_eq!(rounds[1].answered(), 2);
+        assert!(rounds[1].finished_at.is_none());
+
+        // Round words preserve seeded position; known reflects the recording.
+        let words = repo.round_words(r1);
+        assert_eq!(words, vec![(101, Some(true)), (102, Some(false)), (103, None)]);
+
+        // Finish stamps finished_at and flips order label correctly.
+        repo.finish_round(r1, 3000);
+        let after = repo.list_rounds(3);
+        let r1row = after.iter().find(|x| x.id == r1).unwrap();
+        assert_eq!(r1row.finished_at, Some(3000));
+        assert_eq!(r1row.order_label(), "正序");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn study_round_batch_splits_words_and_clear_removes_all() {
+        let path = temp_path("batch");
+        let repo = ProgressRepo::new(path.clone());
+        // 7 words at size 3 -> rounds of 3 / 3 / 1, numbered from 1.
+        let words: Vec<i64> = (1..=7).collect();
+        let ids = repo.create_rounds_batch(5, "seq", &words, 3, 1000);
+        assert_eq!(ids.len(), 3);
+        let mut by_no: Vec<(i64, i64)> = repo
+            .list_rounds(5)
+            .into_iter()
+            .map(|r| (r.number, r.size))
+            .collect();
+        by_no.sort();
+        assert_eq!(by_no, vec![(1, 3), (2, 3), (3, 1)]);
+        // The plan is materialized up front: round 3 is fully seeded and pending.
+        assert_eq!(
+            repo.round_words(ids[2]),
+            vec![(7, None)]
+        );
+        // A later batch continues numbering from the existing rounds.
+        let more = repo.create_rounds_batch(5, "seq", &[8, 9], 3, 2000);
+        assert_eq!(more.len(), 1);
+        assert_eq!(repo.list_rounds(5).len(), 4);
+        // Clear wipes every round and its word rows for the category only.
+        repo.create_rounds_batch(6, "seq", &[42], 3, 2000);
+        repo.clear_rounds(5);
+        assert!(repo.list_rounds(5).is_empty());
+        assert!(repo.round_words(ids[0]).is_empty());
+        assert_eq!(repo.list_rounds(6).len(), 1);
         let _ = std::fs::remove_file(&path);
     }
 }
