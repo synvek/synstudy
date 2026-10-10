@@ -50,6 +50,72 @@ pub struct Example {
     pub source: String,
 }
 
+/// A graded sentence from the open-corpus sentence bank (Tatoeba / Wiktionary).
+///
+/// Each row is tagged with the exam levels whose syllabus vocabulary appears in
+/// the sentence, so the runtime can drive 四级/六级/专四/专八/托福/GRE-specific
+/// practice without redistributing any copyrighted 真题 content.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Sentence {
+    pub id: i64,
+    pub text: String,
+    /// Chinese translation when the Tatoeba links file provided one; empty
+    /// otherwise. Sentence-translation quizzes require a non-empty value.
+    pub translation: String,
+    pub source: String,
+    pub source_id: String,
+    /// Minimum CEFR level across the sentence's content words (A1..C2), or
+    /// empty when no CEFR-tagged word was matched.
+    pub cefr_min: String,
+    /// Comma-separated exam tags: any of `cet4,cet6,tem4,tem8,toefl,gre`.
+    pub exam_levels: String,
+    /// 1..=5 tier derived from the hardest exam tag present.
+    pub difficulty: i64,
+    /// Token count of `text` (whitespace split).
+    pub word_count: i64,
+}
+
+impl Sentence {
+    /// Whether the sentence is tagged with the given exam key (e.g. `cet4`).
+    #[allow(dead_code)]
+    pub fn has_exam(&self, exam: &str) -> bool {
+        self.exam_levels
+            .split(',')
+            .any(|t| t.eq_ignore_ascii_case(exam))
+    }
+
+    /// Human-readable Chinese labels for the tagged exam levels.
+    pub fn exam_labels(&self) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        for t in self.exam_levels.split(',') {
+            match t {
+                "cet4" => out.push("四级"),
+                "cet6" => out.push("六级"),
+                "tem4" => out.push("专四"),
+                "tem8" => out.push("专八"),
+                "toefl" => out.push("托福"),
+                "gre" => out.push("GRE"),
+                _ => {}
+            }
+        }
+        out
+    }
+}
+
+/// A word occurrence inside a `sentence_bank` row. `token_index` is the
+/// whitespace-token position and `token_text` is the raw token as it appears
+/// (so the cloze quiz can blank it out while preserving punctuation).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SentenceWord {
+    pub sentence_id: i64,
+    pub word_id: i64,
+    pub token_index: i64,
+    pub token_text: String,
+    /// 1 when the word is part of an exam syllabus (a valid cloze target),
+    /// 0 for filler words kept only for context.
+    pub is_target: bool,
+}
+
 /// A word root / affix entry (ECDICT wordroot data). The words that use it are
 /// linked separately through the `root_words` table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

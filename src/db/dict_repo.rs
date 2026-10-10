@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use rusqlite::{Connection, OpenFlags, Row};
 
-use crate::models::{Category, Example, Word, WordRoot, ZhEntry};
+use crate::models::{Category, Example, Sentence, SentenceWord, Word, WordRoot, ZhEntry};
 
 const WORD_COLS: &str = "w.id, w.word, w.phonetic, w.translation, w.definition, \
                          w.pos, w.tag, w.bnc, w.frq, w.exchange, w.cefr";
@@ -57,6 +57,34 @@ fn row_to_root(row: &Row) -> rusqlite::Result<WordRoot> {
 }
 
 const ROOT_COLS: &str = "r.root_key, r.class, r.meaning, r.origin, r.synonyms, r.antonyms";
+
+const SENT_COLS: &str = "s.id, s.text, s.translation, s.source, s.source_id, \
+                         s.cefr_min, s.exam_levels, s.difficulty, s.word_count";
+
+fn row_to_sentence(row: &Row) -> rusqlite::Result<Sentence> {
+    Ok(Sentence {
+        id: row.get(0)?,
+        text: row.get(1)?,
+        translation: row.get(2)?,
+        source: row.get(3)?,
+        source_id: row.get(4)?,
+        cefr_min: row.get(5)?,
+        exam_levels: row.get(6)?,
+        difficulty: row.get(7)?,
+        word_count: row.get(8)?,
+    })
+}
+
+fn row_to_sentence_word(row: &Row) -> rusqlite::Result<SentenceWord> {
+    let flag: i64 = row.get(4)?;
+    Ok(SentenceWord {
+        sentence_id: row.get(0)?,
+        word_id: row.get(1)?,
+        token_index: row.get(2)?,
+        token_text: row.get(3)?,
+        is_target: flag != 0,
+    })
+}
 
 /// True when `a` and `b` differ by at most one edit. Uses the optimal string
 /// alignment (restricted Damerau-Levenshtein) distance so a single adjacent
@@ -533,6 +561,195 @@ impl DictRepo {
         conn.query_row("SELECT COUNT(*) FROM word_roots", [], |r| r.get(0))
             .unwrap_or(0)
     }
+
+    /// Total rows in the graded sentence bank. Returns 0 when the table is
+    /// absent (databases built before schema v7 or without Tatoeba data).
+    pub fn sentence_total(&self) -> i64 {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return 0,
+        };
+        conn.query_row("SELECT COUNT(*) FROM sentence_bank", [], |r| r.get(0))
+            .unwrap_or(0)
+    }
+
+    /// Sentence-bank rows that contain a given word, ordered so sentences with
+    /// a Chinese translation surface first (they support the widest set of
+    /// quiz modes). `exam` optionally narrows the results to one exam tag.
+    pub fn sentences_for_word(
+        &self,
+        word_id: i64,
+        exam: Option<&str>,
+        limit: i64,
+    ) -> Vec<Sentence> {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let exam_like = exam
+            .filter(|e| !e.trim().is_empty())
+            .map(|e| format!("%,{},%", e.trim().to_lowercase()));
+        let sql = if exam_like.is_some() {
+            format!(
+                "SELECT {SENT_COLS} FROM sentence_bank s \
+                 JOIN sentence_words sw ON sw.sentence_id = s.id \
+                 WHERE sw.word_id = ?1 AND (',' || s.exam_levels || ',') LIKE ?2 \
+                 ORDER BY CASE WHEN s.translation <> '' THEN 0 ELSE 1 END, s.difficulty DESC, s.id \
+                 LIMIT ?3"
+            )
+        } else {
+            format!(
+                "SELECT {SENT_COLS} FROM sentence_bank s \
+                 JOIN sentence_words sw ON sw.sentence_id = s.id \
+                 WHERE sw.word_id = ?1 \
+                 ORDER BY CASE WHEN s.translation <> '' THEN 0 ELSE 1 END, s.difficulty DESC, s.id \
+                 LIMIT ?3"
+            )
+        };
+        let mut stmt = match conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = if let Some(pat) = exam_like {
+            stmt.query_map(rusqlite::params![word_id, pat, limit], row_to_sentence)
+        } else {
+            stmt.query_map(
+                rusqlite::params![word_id, rusqlite::types::Null, limit],
+                row_to_sentence,
+            )
+        };
+        rows.and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>())
+            .unwrap_or_default()
+    }
+
+    /// Random sample of sentences for quiz sessions. When `exam` is `Some`,
+    /// only sentences tagged with that exam key are returned. When
+    /// `require_translation` is true, only rows with a non-empty Chinese
+    /// translation are eligible (used by the sentence-translation quiz).
+    pub fn random_sentences(
+        &self,
+        exam: Option<&str>,
+        require_translation: bool,
+        count: i64,
+    ) -> Vec<Sentence> {
+        if count <= 0 {
+            return Vec::new();
+        }
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let exam_like = exam
+            .filter(|e| !e.trim().is_empty())
+            .map(|e| format!("%,{},%", e.trim().to_lowercase()));
+        // Build the WHERE clause incrementally so positional params stay in
+        // sync with the number of bound values.
+        let mut clauses: Vec<String> = vec![
+            "s.id IN (SELECT DISTINCT sentence_id FROM sentence_words WHERE is_target = 1)"
+                .to_string(),
+        ];
+        if exam_like.is_some() {
+            clauses.push("(',' || s.exam_levels || ',') LIKE ?1".to_string());
+        }
+        if require_translation {
+            clauses.push("s.translation <> ''".to_string());
+        }
+        // LIMIT is always the last positional param: ?2 when exam is bound,
+        // ?1 otherwise.
+        let limit_param = if exam_like.is_some() { "?2" } else { "?1" };
+        let sql = format!(
+            "SELECT {SENT_COLS} FROM sentence_bank s WHERE {} \
+             ORDER BY RANDOM() LIMIT {}",
+            clauses.join(" AND "),
+            limit_param
+        );
+        let mut stmt = match conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = if let Some(pat) = exam_like {
+            stmt.query_map(rusqlite::params![pat, count], row_to_sentence)
+        } else {
+            stmt.query_map(rusqlite::params![count], row_to_sentence)
+        };
+        rows.and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>())
+            .unwrap_or_default()
+    }
+
+    /// Look up one sentence by id.
+    pub fn sentence_by_id(&self, id: i64) -> Option<Sentence> {
+        let conn = self.conn().ok()?;
+        let sql = format!("SELECT {SENT_COLS} FROM sentence_bank s WHERE s.id = ?1 LIMIT 1");
+        conn.query_row(&sql, rusqlite::params![id], row_to_sentence).ok()
+    }
+
+    /// All word occurrences inside a sentence, ordered by token index. Used by
+    /// the cloze quiz to blank out a target token while preserving the rest.
+    pub fn sentence_words(&self, sentence_id: i64, only_targets: bool) -> Vec<SentenceWord> {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let sql = if only_targets {
+            "SELECT sentence_id, word_id, token_index, token_text, is_target \
+             FROM sentence_words WHERE sentence_id = ?1 AND is_target = 1 \
+             ORDER BY token_index"
+        } else {
+            "SELECT sentence_id, word_id, token_index, token_text, is_target \
+             FROM sentence_words WHERE sentence_id = ?1 ORDER BY token_index"
+        };
+        let mut stmt = match conn.prepare(sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt
+            .query_map(rusqlite::params![sentence_id], row_to_sentence_word)
+            .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
+        rows.unwrap_or_default()
+    }
+
+    /// Random words drawn from a single exam tag's syllabus, used to build the
+    /// distractor options for cloze / listening quizzes. `exclude` is skipped
+    /// (usually the correct answer). Falls back to any exam-tagged word when
+    /// `exam` is `None`.
+    pub fn random_exam_words(&self, exam: Option<&str>, exclude: i64, count: i64) -> Vec<Word> {
+        if count <= 0 {
+            return Vec::new();
+        }
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let tag = exam.unwrap_or("").trim().to_lowercase();
+        // Match the exam tag as a whole token inside the space-separated `tag`
+        // column. When no exam filter is set, accept any row with a non-empty
+        // tag so we still pull syllabus vocabulary rather than obscure words.
+        let sql = if tag.is_empty() {
+            format!(
+                "SELECT {WORD_COLS} FROM words w \
+                 WHERE w.id != ?1 AND w.tag <> '' \
+                 ORDER BY RANDOM() LIMIT ?2"
+            )
+        } else {
+            format!(
+                "SELECT {WORD_COLS} FROM words w \
+                 WHERE w.id != ?1 AND (' ' || w.tag || ' ') LIKE ?3 \
+                 ORDER BY RANDOM() LIMIT ?2"
+            )
+        };
+        let mut stmt = match conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let like = format!("% {} %", tag);
+        let rows = if tag.is_empty() {
+            stmt.query_map(rusqlite::params![exclude, count], row_to_word)
+        } else {
+            stmt.query_map(rusqlite::params![exclude, count, like], row_to_word)
+        };
+        rows.and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>())
+            .unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
@@ -832,6 +1049,123 @@ mod tests {
         assert_eq!(fw.len(), 1);
         assert_eq!(fw[0].root_key, "mal");
         assert_eq!(repo.root_total(), 1);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Fixture with a mini sentence_bank + sentence_words + words so the
+    /// sentence queries can be exercised end-to-end.
+    fn temp_sentence_repo() -> (DictRepo, PathBuf) {
+        static SEQ: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "synstudy_sent_test_{}_{}.db",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_file(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE words (
+                id INTEGER PRIMARY KEY, word TEXT NOT NULL UNIQUE,
+                phonetic TEXT DEFAULT '', translation TEXT DEFAULT '',
+                definition TEXT DEFAULT '', pos TEXT DEFAULT '', tag TEXT DEFAULT '',
+                bnc INTEGER DEFAULT 0, frq INTEGER DEFAULT 0, exchange TEXT DEFAULT '', cefr TEXT DEFAULT ''
+            );
+            CREATE TABLE sentence_bank (
+                id INTEGER PRIMARY KEY, text TEXT NOT NULL,
+                translation TEXT DEFAULT '', source TEXT DEFAULT 'Tatoeba',
+                source_id TEXT DEFAULT '', cefr_min TEXT DEFAULT '',
+                exam_levels TEXT DEFAULT '', difficulty INTEGER DEFAULT 0, word_count INTEGER DEFAULT 0
+            );
+            CREATE TABLE sentence_words (
+                sentence_id INTEGER NOT NULL, word_id INTEGER NOT NULL,
+                token_index INTEGER NOT NULL, token_text TEXT DEFAULT '',
+                is_target INTEGER DEFAULT 0,
+                PRIMARY KEY (sentence_id, token_index)
+            );
+            INSERT INTO words (id, word, translation, tag) VALUES
+                (1,'apple','n. 苹果','cet4'),
+                (2,'ubiquitous','adj. 无处不在的','gre'),
+                (3,'the','','');
+            INSERT INTO sentence_bank (id, text, translation, source, source_id, cefr_min, exam_levels, difficulty, word_count) VALUES
+                (10,'The apple is red.','苹果是红的。','Tatoeba','t10','A1','cet4',1,4),
+                (11,'Smartphones are ubiquitous today.','','Tatoeba','t11','C2','gre',5,4),
+                (12,'The apple and the phone.','','Tatoeba','t12','A1','cet4,gre',5,5);
+            INSERT INTO sentence_words (sentence_id, word_id, token_index, token_text, is_target) VALUES
+                (10, 3, 0, 'The', 0),
+                (10, 1, 1, 'apple', 1),
+                (11, 2, 2, 'ubiquitous', 1),
+                (12, 3, 0, 'The', 0),
+                (12, 1, 1, 'apple', 1);",
+        )
+        .unwrap();
+        drop(conn);
+        (DictRepo::new(path.clone()), path)
+    }
+
+    #[test]
+    fn sentence_bank_degrades_when_absent() {
+        // temp_word_repo has no sentence_bank/sentence_words tables.
+        let (repo, path) = temp_word_repo();
+        assert_eq!(repo.sentence_total(), 0);
+        assert!(repo.sentences_for_word(1, None, 10).is_empty());
+        assert!(repo.random_sentences(None, false, 5).is_empty());
+        assert!(repo.sentence_by_id(1).is_none());
+        assert!(repo.sentence_words(1, false).is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sentences_for_word_filters_by_exam() {
+        let (repo, path) = temp_sentence_repo();
+        assert_eq!(repo.sentence_total(), 3);
+        // apple appears in sentences 10 and 12 (both cet4).
+        let apple_all = repo.sentences_for_word(1, None, 10);
+        assert_eq!(apple_all.len(), 2);
+        // Filtering to `gre` should drop sentence 10 (which is cet4-only).
+        let apple_gre = repo.sentences_for_word(1, Some("gre"), 10);
+        assert_eq!(apple_gre.len(), 1);
+        assert_eq!(apple_gre[0].id, 12);
+        // Translation-first ordering: sentence 10 (has zh) precedes 12.
+        assert_eq!(apple_all[0].id, 10);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn random_sentences_respects_translation_and_exam_filters() {
+        let (repo, path) = temp_sentence_repo();
+        // require_translation=true -> only sentence 10 qualifies.
+        let with_zh = repo.random_sentences(None, true, 10);
+        assert_eq!(with_zh.len(), 1);
+        assert_eq!(with_zh[0].id, 10);
+        // exam=gre + has_target -> sentences 11 and 12.
+        let gre = repo.random_sentences(Some("gre"), false, 10);
+        let ids: std::collections::HashSet<i64> = gre.iter().map(|s| s.id).collect();
+        assert!(ids.contains(&11));
+        assert!(ids.contains(&12));
+        // exam=gre + translation -> none of them have both.
+        let gre_zh = repo.random_sentences(Some("gre"), true, 10);
+        assert!(gre_zh.is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sentence_words_target_filter_and_lookup() {
+        let (repo, path) = temp_sentence_repo();
+        let s = repo.sentence_by_id(10).expect("sentence 10");
+        assert_eq!(s.text, "The apple is red.");
+        assert!(s.has_exam("cet4"));
+        assert!(!s.has_exam("gre"));
+        assert_eq!(s.exam_labels(), vec!["四级"]);
+        // All tokens, in order.
+        let all = repo.sentence_words(10, false);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].token_text, "The");
+        assert!(!all[0].is_target);
+        // Only is_target=1 rows.
+        let targets = repo.sentence_words(10, true);
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].word_id, 1);
+        assert!(targets[0].is_target);
         let _ = std::fs::remove_file(&path);
     }
 }

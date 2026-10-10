@@ -419,3 +419,40 @@ h1, h2, h3, h4 { color: var(--text); }
 .root-key { font-size: 28px; margin: 0; color: var(--primary); }
 .root-meaning { font-size: 17px; margin: 0; }
 .root-word-detail { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+
+/* ---------------- Sentence-bank quiz (选词填空 / 句意选择 / 听音辨词) ---------------- */
+.seg.wrap { flex-wrap: wrap; }
+.sentence-card { align-items: stretch; }
+.sentence-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chip-sm { font-size: 11px; padding: 2px 8px; }
+.chip-cefr { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
+.chip-src { background: transparent; color: var(--muted); font-size: 11px; padding: 2px 8px; }
+.sentence-text { font-size: 20px; line-height: 1.55; margin: 12px 0; color: var(--text); }
+.sentence-text.muted { color: var(--muted); font-style: italic; }
+.sentence-zh { font-size: 14px; margin: 4px 0 12px; }
+.opt-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 12px; }
+.opt {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 12px 14px; border-radius: 10px; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  font-size: 15px; transition: background .15s, border-color .15s, transform .1s;
+}
+.opt:hover:not(:disabled) { border-color: var(--primary); transform: translateY(-1px); }
+.opt:disabled { cursor: default; }
+.opt-key {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 6px;
+  background: var(--primary-soft); color: var(--chip-text);
+  font-weight: 600; font-size: 13px; flex-shrink: 0;
+}
+.opt-text { flex: 1; }
+.opt.ok { background: rgba(55, 201, 139, .18); border-color: var(--success); }
+.opt.ok .opt-key { background: var(--success); color: #fff; }
+.opt.bad { background: rgba(255, 107, 107, .18); border-color: var(--danger); }
+.opt.bad .opt-key { background: var(--danger); color: #fff; }
+.opt.dim { opacity: .55; }
+
+/* Word-detail sentence-bank block */
+.wd-example-sent { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-left: 3px solid var(--primary); }
+.wd-example-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 2px; }
+.wd-example-zh { font-size: 13px; margin: 0; }

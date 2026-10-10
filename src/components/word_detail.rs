@@ -18,6 +18,7 @@ pub fn WordDetail(word: Word) -> Element {
     let exchange = format_exchange(&word.exchange);
     let cefr = word.cefr.clone();
     let examples = dict.get_examples(word.id, 3);
+    let graded_sentences = dict.sentences_for_word(word.id, None, 5);
     let word_roots = dict.roots_for_word(word.id);
 
     // Star (wordbook) state. Kept in a signal so toggling repaints the button;
@@ -138,6 +139,48 @@ pub fn WordDetail(word: Word) -> Element {
                         })}
                     }
                     p { class: "wd-example-note", "例句来自 Wiktionary（CC BY-SA 4.0）" }
+                }
+            }
+
+            if !graded_sentences.is_empty() {
+                div { class: "wd-sec",
+                    h4 { "考试句库" }
+                    div { class: "wd-examples",
+                        {graded_sentences.iter().enumerate().map(|(i, s)| {
+                            let text = s.text.clone();
+                            let zh = s.translation.clone();
+                            let labels = s.exam_labels();
+                            let speak_text = s.text.clone();
+                            let rate = settings().tts_rate;
+                            let tts_on = settings().tts_enabled;
+                            let cefr = s.cefr_min.clone();
+                            rsx! {
+                                div { key: "{i}", class: "wd-example wd-example-sent",
+                                    div { class: "wd-example-chips",
+                                        for l in labels.iter() {
+                                            span { key: "{l}", class: "chip chip-sm", "{l}" }
+                                        }
+                                        if !cefr.is_empty() {
+                                            span { class: "chip chip-sm chip-cefr", "CEFR {cefr}" }
+                                        }
+                                    }
+                                    p { class: "wd-example-text", "{text}" }
+                                    if !zh.is_empty() {
+                                        p { class: "wd-example-zh muted", "{zh}" }
+                                    }
+                                    if tts_on {
+                                        button {
+                                            class: "wd-ex-speak",
+                                            title: "朗读句子",
+                                            onclick: move |_| tts::speak(&speak_text, rate),
+                                            "\u{1f50a}"
+                                        }
+                                    }
+                                }
+                            }
+                        })}
+                    }
+                    p { class: "wd-example-note", "句子来自 Tatoeba（CC-BY 2.0 FR），按考纲词自动标记。" }
                 }
             }
 

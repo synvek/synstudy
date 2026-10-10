@@ -99,6 +99,13 @@ pub enum QuizMode {
     FromMeaning,
     /// Hear the word via TTS, type the English word.
     FromSound,
+    /// Sentence cloze: pick the missing 考纲词 from 4 options.
+    Cloze,
+    /// Sentence translation: given the English sentence, pick the correct
+    /// Chinese meaning of the highlighted target word.
+    SentenceTranslation,
+    /// Listen to the sentence, pick which target word was spoken.
+    ListenChoose,
 }
 
 impl QuizMode {
@@ -106,7 +113,83 @@ impl QuizMode {
         match self {
             QuizMode::FromMeaning => "看释义拼写",
             QuizMode::FromSound => "听音拼写",
+            QuizMode::Cloze => "选词填空",
+            QuizMode::SentenceTranslation => "句意选择",
+            QuizMode::ListenChoose => "听音辨词",
         }
+    }
+
+    /// Sentence-bank-backed modes; they draw questions from `sentence_bank`
+    /// rather than the plain word list.
+    pub fn is_sentence_mode(self) -> bool {
+        matches!(
+            self,
+            QuizMode::Cloze | QuizMode::SentenceTranslation | QuizMode::ListenChoose
+        )
+    }
+
+    /// All quiz modes in display order.
+    pub fn all() -> &'static [QuizMode] {
+        &[
+            QuizMode::FromMeaning,
+            QuizMode::FromSound,
+            QuizMode::Cloze,
+            QuizMode::SentenceTranslation,
+            QuizMode::ListenChoose,
+        ]
+    }
+}
+
+/// Which exam syllabus the sentence-bank quiz should draw from. `All` uses the
+/// full bank; the other variants restrict to sentences tagged with that key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ExamFilter {
+    #[default]
+    All,
+    Cet4,
+    Cet6,
+    Tem4,
+    Tem8,
+    Toefl,
+    Gre,
+}
+
+impl ExamFilter {
+    /// The key used in `sentence_bank.exam_levels`, or `None` for `All`.
+    pub fn key(self) -> Option<&'static str> {
+        match self {
+            ExamFilter::All => None,
+            ExamFilter::Cet4 => Some("cet4"),
+            ExamFilter::Cet6 => Some("cet6"),
+            ExamFilter::Tem4 => Some("tem4"),
+            ExamFilter::Tem8 => Some("tem8"),
+            ExamFilter::Toefl => Some("toefl"),
+            ExamFilter::Gre => Some("gre"),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ExamFilter::All => "全部",
+            ExamFilter::Cet4 => "四级",
+            ExamFilter::Cet6 => "六级",
+            ExamFilter::Tem4 => "专四",
+            ExamFilter::Tem8 => "专八",
+            ExamFilter::Toefl => "托福",
+            ExamFilter::Gre => "GRE",
+        }
+    }
+
+    pub fn all() -> &'static [ExamFilter] {
+        &[
+            ExamFilter::All,
+            ExamFilter::Cet4,
+            ExamFilter::Cet6,
+            ExamFilter::Tem4,
+            ExamFilter::Tem8,
+            ExamFilter::Toefl,
+            ExamFilter::Gre,
+        ]
     }
 }
 
@@ -128,6 +211,9 @@ pub struct Settings {
     /// Spelling-quiz mode (see meaning vs. hear audio).
     #[serde(default)]
     pub quiz_mode: QuizMode,
+    /// Which exam syllabus to draw sentence-bank questions from.
+    #[serde(default)]
+    pub quiz_exam_filter: ExamFilter,
     /// Auto-play TTS when a quiz question appears.
     #[serde(default = "default_true")]
     pub quiz_auto_tts: bool,
@@ -159,6 +245,7 @@ impl Default for Settings {
             reverse: false,
             theme: Theme::default(),
             quiz_mode: QuizMode::default(),
+            quiz_exam_filter: ExamFilter::default(),
             quiz_auto_tts: true,
             quiz_record_miss: true,
             tts_enabled: true,

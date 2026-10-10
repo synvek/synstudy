@@ -41,6 +41,17 @@ impl Source {
 
 #[component]
 pub fn Quiz() -> Element {
+    // Dispatch to the sentence-bank quiz when the user picked one of the
+    // sentence modes; otherwise run the classic spelling flow below.
+    let settings: Signal<Settings> = use_context();
+    if settings().quiz_mode.is_sentence_mode() {
+        return rsx! { crate::pages::sentence_quiz::SentenceQuiz {} };
+    }
+    rsx! { SpellingQuiz {} }
+}
+
+#[component]
+fn SpellingQuiz() -> Element {
     let dict: DictRepo = use_context();
     let progress: ProgressRepo = use_context();
     let settings: Signal<Settings> = use_context();

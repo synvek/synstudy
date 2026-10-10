@@ -1,0 +1,54 @@
+Tatoeba — License and Attribution
+=================================
+
+Project : https://tatoeba.org/
+Data    : English sentences + Mandarin sentences + cross-language links
+Files   : data/tatoeba/en_sentences.tsv.bz2
+          data/tatoeba/cmn_sentences.tsv.bz2
+          data/tatoeba/links.tsv.bz2
+License : Creative Commons Attribution 2.0 France (CC-BY 2.0 FR)
+Full text: https://creativecommons.org/licenses/by/2.0/fr/legalcode
+Terms summary: https://tatoeba.org/en/terms_of_use
+
+------------------------------------------------------------
+Attribution (as required by CC-BY 2.0 FR)
+------------------------------------------------------------
+The graded sentence bank in assets/synstudy.db (`sentence_bank` table) is a
+derived work of Tatoeba's crowdsourced sentence corpus. Individual Tatoeba
+sentences remain the property of their respective contributors, who release
+them under CC-BY 2.0 FR.
+
+When redistributing assets/synstudy.db you must:
+
+  1. Attribute Tatoeba as the source of the sentences. The synstudy UI already
+     does this in the word-detail panel ("句子来自 Tatoeba（CC-BY 2.0 FR）")
+     and in the quiz card (source chip).
+
+  2. Include a copy of the CC-BY 2.0 FR license, or a link to it. This file
+     fulfills that requirement.
+
+  3. Indicate if changes were made. synstudy filters Tatoeba sentences by
+     length, dictionary coverage, and exam-syllabus vocabulary; it also
+     attaches Chinese translations via Tatoeba's own cross-language links.
+
+------------------------------------------------------------
+Full license text
+------------------------------------------------------------
+The complete CC-BY 2.0 FR legal code is available at:
+  https://creativecommons.org/licenses/by/2.0/fr/legalcode
+
+A plain-English summary is available at:
+  https://creativecommons.org/licenses/by/2.0/fr/deed.en
+
+The license text itself is not reproduced here because it is long and
+jurisdiction-specific (French). Please refer to the canonical URLs above.
+
+------------------------------------------------------------
+What synstudy does NOT redistribute
+------------------------------------------------------------
+- No copyrighted 真题 (real exam questions) from CET-4/6, TEM-4/8, TOEFL, or
+  GRE are included in the sentence bank or anywhere else in synstudy. Those
+  exams are proprietary to their respective testing bodies (教育部考试中心,
+  高等学校外语专业教学指导委员会, ETS) and cannot be legally redistributed.
+- The `sentence_bank.exam_levels` column contains only our own derived tags
+  computed from open ECDICT syllabus metadata; no exam content is copied.

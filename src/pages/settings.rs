@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::db::{dict_repo::DictRepo, progress_repo::ProgressRepo};
 use crate::models::Category;
-use crate::state::{QuizMode, Settings, Theme, SETTINGS_KEY};
+use crate::state::{ExamFilter, QuizMode, Settings, Theme, SETTINGS_KEY};
 use crate::srs::Scheduler;
 use crate::tts;
 
@@ -155,14 +155,15 @@ pub fn SettingsPage() -> Element {
             section { class: "setting-group",
                 h3 { "测验" }
                 div { class: "setting-row",
-                    label { "拼写测验模式" }
-                    div { class: "seg",
-                        for m in [QuizMode::FromMeaning, QuizMode::FromSound] {
+                    label { "测验题型" }
+                    div { class: "seg wrap",
+                        for m in QuizMode::all() {
                             button {
                                 key: "{m:?}",
-                                class: if cur.quiz_mode == m { "seg-btn active" } else { "seg-btn" },
+                                class: if cur.quiz_mode == *m { "seg-btn active" } else { "seg-btn" },
                                 onclick: {
                                     let mut persist = persist.clone();
+                                    let m = *m;
                                     move |_| {
                                         let mut s = settings.read().clone();
                                         s.quiz_mode = m;
@@ -174,8 +175,34 @@ pub fn SettingsPage() -> Element {
                         }
                     }
                 }
+                if cur.quiz_mode.is_sentence_mode() {
+                    div { class: "setting-row",
+                        label { "考试级别过滤（句库题）" }
+                        div { class: "seg wrap",
+                            for f in ExamFilter::all() {
+                                button {
+                                    key: "{f:?}",
+                                    class: if cur.quiz_exam_filter == *f { "seg-btn active" } else { "seg-btn" },
+                                    onclick: {
+                                        let mut persist = persist.clone();
+                                        let f = *f;
+                                        move |_| {
+                                            let mut s = settings.read().clone();
+                                            s.quiz_exam_filter = f;
+                                            persist(s);
+                                        }
+                                    },
+                                    "{f.label()}"
+                                }
+                            }
+                        }
+                    }
+                    p { class: "muted hint",
+                        "句库题使用 Tatoeba 开放句库（CC-BY 2.0 FR），按考纲词自动标记到四级/六级/专四/专八/托福/GRE。不包含任何受版权保护的真题内容。"
+                    }
+                }
                 div { class: "setting-row",
-                    label { "出题时自动发音（听音拼写）" }
+                    label { "出题时自动发音（听音拼写 / 听音辨词）" }
                     input {
                         r#type: "checkbox",
                         checked: cur.quiz_auto_tts,

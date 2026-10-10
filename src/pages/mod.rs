@@ -3,6 +3,7 @@ pub mod dictionary;
 pub mod quiz;
 pub mod review;
 pub mod roots;
+pub mod sentence_quiz;
 pub mod settings;
 pub mod stats;
 pub mod study;

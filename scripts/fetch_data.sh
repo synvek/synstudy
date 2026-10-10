@@ -13,8 +13,12 @@
 #   * CC-CEDICT         (MDBG, CC-BY-SA 4.0)        -> data/cedict.txt   (真·汉英词典)
 #   * CEFR-J            (openlanguageprofiles/olp-en-cefrj, 需引用署名) -> data/cefrj/*.csv
 #   * Wiktionary/kaikki.org ( kaikki.org-dictionary-English.jsonl, CC BY-SA 4.0) -> data/kaikki.en.jsonl  (例句)
+#   * Tatoeba           (tatoeba.org, CC-BY 2.0 FR)  -> data/tatoeba/*.tsv.bz2  (分级句库)
 #   * qwerty-learner    (RealKai42, GPL-3.0)       -> data/dicts/PEPXiaoXue*.json, GaoKao_3500.json
 #   * TEM4/TEM8 lists   (kajweb/dict, word list only; definitions come from MIT ECDICT)
+#
+# Set SKIP_TATOEBA_LINKS=1 to skip the large (~200MB) cross-language links
+# archive; the sentence bank still builds, just without Chinese translations.
 #
 # After fetching, run:  python3 scripts/build_dict_db.py
 set -euo pipefail
@@ -23,7 +27,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA="$ROOT/data"
 DICTS="$DATA/dicts"
 CEFRJ="$DATA/cefrj"
-mkdir -p "$DICTS" "$CEFRJ"
+TATOEBA="$DATA/tatoeba"
+mkdir -p "$DICTS" "$CEFRJ" "$TATOEBA"
 
 RAW_ECDICT="https://raw.githubusercontent.com/skywind3000/ECDICT/master"
 RAW_QWERTY="https://raw.githubusercontent.com/RealKai42/qwerty-learner/master/public/dicts"
@@ -31,6 +36,11 @@ RAW_KAJWEB="https://raw.githubusercontent.com/kajweb/dict/master/book"
 RAW_CEFRJ="https://raw.githubusercontent.com/openlanguageprofiles/olp-en-cefrj/master"
 CEDICT_GZ="https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
 KAIKKI="https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl"
+# Tatoeba renamed per-language exports to ISO639-3 codes (en -> eng); the old
+# en_sentences URL returns 404, so we use eng and keep the local file name stable.
+TATOEBA_EN="https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2"
+TATOEBA_CMN="https://downloads.tatoeba.org/exports/per_language/cmn/cmn_sentences.tsv.bz2"
+TATOEBA_LINKS="https://downloads.tatoeba.org/exports/links.tar.bz2"
 
 fetch() {  # fetch <url> <out>
   local url="$1" out="$2"
@@ -39,14 +49,16 @@ fetch() {  # fetch <url> <out>
     return 0
   fi
   echo "  -> $(basename "$out")"
-  curl -sS -L --retry 3 --retry-delay 2 -o "$out" "$url"
+  # --fail: on 404/5xx curl exits non-zero WITHOUT writing the error page to
+  # the output file (a saved HTML body would poison the later bz2 decode).
+  curl -sS -L -f --retry 3 --retry-delay 2 -o "$out" "$url"
 }
 
-echo "[1/7] ECDICT master dictionary (MIT)"
+echo "[1/8] ECDICT master dictionary (MIT)"
 fetch "$RAW_ECDICT/ecdict.csv"   "$DATA/ecdict.csv"
 fetch "$RAW_ECDICT/wordroot.txt" "$DATA/wordroot.txt"
 
-echo "[2/7] CC-CEDICT Chinese-English dictionary (CC-BY-SA 4.0)"
+echo "[2/8] CC-CEDICT Chinese-English dictionary (CC-BY-SA 4.0)"
 if [[ -s "$DATA/cedict.txt" ]]; then
   echo "  = exists: cedict.txt"
 else
@@ -55,27 +67,49 @@ else
   gunzip -f "$DATA/cedict.txt.gz"
 fi
 
-echo "[3/7] CEFR-J vocabulary profile (A1-C2 levels; requires citation)"
+echo "[3/8] CEFR-J vocabulary profile (A1-C2 levels; requires citation)"
 fetch "$RAW_CEFRJ/cefrj-vocabulary-profile-1.5.csv"         "$CEFRJ/cefrj-vocabulary-profile-1.5.csv"
 fetch "$RAW_CEFRJ/octanove-vocabulary-profile-c1c2-1.0.csv" "$CEFRJ/octanove-vocabulary-profile-c1c2-1.0.csv"
 fetch "$RAW_CEFRJ/README.md"                               "$CEFRJ/olp-en-cefrj-README.md"
 
-echo "[4/7] Wiktionary example sentences (kaikki.org, CC BY-SA 4.0; ~3.1GB)"
+echo "[4/8] Wiktionary example sentences (kaikki.org, CC BY-SA 4.0; ~3.1GB)"
 if [[ -s "$DATA/kaikki.en.jsonl" ]]; then
   echo "  = exists: kaikki.en.jsonl"
 else
   echo "  -> kaikki.en.jsonl (large; supports resume via -C -)"
-  curl -sS -L --retry 3 --retry-delay 2 -C - -o "$DATA/kaikki.en.jsonl" "$KAIKKI"
+  curl -sS -L -f --retry 3 --retry-delay 2 -C - -o "$DATA/kaikki.en.jsonl" "$KAIKKI"
 fi
 
-echo "[5/7] qwerty-learner graded lists (小学 PEP + 高考3500)"
+echo "[5/8] Tatoeba sentence bank (CC-BY 2.0 FR; graded example sentences)"
+fetch "$TATOEBA_EN"  "$TATOEBA/en_sentences.tsv.bz2"
+fetch "$TATOEBA_CMN" "$TATOEBA/cmn_sentences.tsv.bz2"
+if [[ "${SKIP_TATOEBA_LINKS:-0}" == "1" ]]; then
+  echo "  ! SKIP_TATOEBA_LINKS=1 set; 句库将不包含中文翻译"
+else
+  if [[ -s "$TATOEBA/links.tsv.bz2" || -s "$TATOEBA/links.tsv" ]]; then
+    echo "  = exists: links"
+  else
+    echo "  -> links.tar.bz2 (~200MB; contains links.csv)"
+    curl -sS -L -f --retry 3 --retry-delay 2 -C - -o "$TATOEBA/links.tar.bz2" "$TATOEBA_LINKS"
+    # Extract links.csv -> links.tsv (Tatoeba's links.csv is already tab-separated
+    # despite the extension; rename for consistency with the builder's glob).
+    tar -xjf "$TATOEBA/links.tar.bz2" -C "$TATOEBA" links.csv 2>/dev/null || \
+      tar -xjf "$TATOEBA/links.tar.bz2" -C "$TATOEBA"
+    if [[ -f "$TATOEBA/links.csv" ]]; then
+      mv "$TATOEBA/links.csv" "$TATOEBA/links.tsv"
+      rm -f "$TATOEBA/links.tar.bz2"
+    fi
+  fi
+fi
+
+echo "[6/8] qwerty-learner graded lists (小学 PEP + 高考3500)"
 for f in PEPXiaoXue3_1_T PEPXiaoXue3_2_T PEPXiaoXue4_1_T PEPXiaoXue4_2_T \
          PEPXiaoXue5_1_T PEPXiaoXue5_2_T PEPXiaoXue6_1_T PEPXiaoXue6_2_T \
          GaoKao_3500; do
   fetch "$RAW_QWERTY/$f.json" "$DICTS/$f.json"
 done
 
-echo "[6/7] TEM4 / TEM8 syllabus word lists (words only)"
+echo "[7/8] TEM4 / TEM8 syllabus word lists (words only)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 fetch "$RAW_KAJWEB/1521164653685_Level4_2.zip" "$TMP/level4.zip"
@@ -83,7 +117,7 @@ fetch "$RAW_KAJWEB/1521164663794_Level8_2.zip" "$TMP/level8.zip"
 unzip -o -q "$TMP/level4.zip" -d "$TMP/l4"
 unzip -o -q "$TMP/level8.zip" -d "$TMP/l8"
 
-echo "[7/7] Extracting headwords -> data/dicts/tem{4,8}.json"
+echo "[8/8] Extracting headwords -> data/dicts/tem{4,8}.json"
 python3 - "$TMP" "$DICTS" <<'PY'
 import json, os, sys
 tmp, dicts = sys.argv[1], sys.argv[2]

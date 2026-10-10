@@ -332,6 +332,54 @@ SAMPLE_KAIKKI = [
             {"text": "Advertising is ubiquitous on the internet."}]}]},
 ]
 
+# A tiny Tatoeba-format sample so sentence_bank works offline.
+# Rows are (id, lang, text). Written as a plain TSV; the builder accepts both
+# .tsv and .tsv.bz2. Chinese translations are provided via the links table so
+# the sample exercises the same code path as a real build.
+SAMPLE_TATOEBA_EN = [
+    ("1001", "eng", "She bit into the crisp red apple."),
+    ("1002", "eng", "Every student must wear an ID badge at school."),
+    ("1003", "eng", "With hard work you can achieve your goals."),
+    ("1004", "eng", "We must protect the environment for future generations."),
+    ("1005", "eng", "They had to abandon the car in the deep snow."),
+    ("1006", "eng", "Smartphones have become ubiquitous in modern life."),
+    ("1007", "eng", "The teacher will analyze the results of the exam."),
+    ("1008", "eng", "His hypothesis about the ecosystem was later confirmed."),
+    ("1009", "eng", "The government should provide equal access to education."),
+    ("1010", "eng", "Her verbose explanation confused the whole class."),
+    ("1011", "eng", "Reading books is a good way to acquire knowledge."),
+    ("1012", "eng", "The judge remained impartial throughout the trial."),
+]
+SAMPLE_TATOEBA_CMN = [
+    ("2001", "cmn", "她咬了一口又脆又红的苹果。"),
+    ("2002", "cmn", "每个学生都必须在学校佩戴身份证。"),
+    ("2003", "cmn", "只要努力，你就能实现目标。"),
+    ("2004", "cmn", "我们必须为后代保护环境。"),
+    ("2005", "cmn", "他们不得不将车抛弃在深雪中。"),
+    ("2006", "cmn", "智能手机在现代生活中已无处不在。"),
+    ("2007", "cmn", "老师会分析考试的结果。"),
+    ("2008", "cmn", "他关于生态系统的假说后来得到了证实。"),
+    ("2009", "cmn", "政府应当提供平等的受教育机会。"),
+    ("2010", "cmn", "她冗长的解释让全班都困惑。"),
+    ("2011", "cmn", "读书是获取知识的好方法。"),
+    ("2012", "cmn", "法官在整个审判中保持了公正。"),
+]
+# Tatoeba links: (en_id, cmn_id, user_id, date_added, date_modified)
+SAMPLE_TATOEBA_LINKS = [
+    ("1001", "2001", "1", "2020-01-01", "2020-01-01"),
+    ("1002", "2002", "1", "2020-01-01", "2020-01-01"),
+    ("1003", "2003", "1", "2020-01-01", "2020-01-01"),
+    ("1004", "2004", "1", "2020-01-01", "2020-01-01"),
+    ("1005", "2005", "1", "2020-01-01", "2020-01-01"),
+    ("1006", "2006", "1", "2020-01-01", "2020-01-01"),
+    ("1007", "2007", "1", "2020-01-01", "2020-01-01"),
+    ("1008", "2008", "1", "2020-01-01", "2020-01-01"),
+    ("1009", "2009", "1", "2020-01-01", "2020-01-01"),
+    ("1010", "2010", "1", "2020-01-01", "2020-01-01"),
+    ("1011", "2011", "1", "2020-01-01", "2020-01-01"),
+    ("1012", "2012", "1", "2020-01-01", "2020-01-01"),
+]
+
 
 def main():
     os.makedirs(DICTS, exist_ok=True)
@@ -423,6 +471,25 @@ def main():
         for rec in SAMPLE_KAIKKI:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     print("  {} ({} records)".format(kaikki_path, len(SAMPLE_KAIKKI)))
+
+    # --- data/tatoeba/*.tsv (Tatoeba format, sample subset) ---
+    tatoeba_dir = os.path.join(DATA, "tatoeba")
+    os.makedirs(tatoeba_dir, exist_ok=True)
+    en_tsv = os.path.join(tatoeba_dir, "en_sentences.tsv")
+    with open(en_tsv, "w", encoding="utf-8") as f:
+        for row in SAMPLE_TATOEBA_EN:
+            f.write("\t".join(row) + "\n")
+    cmn_tsv = os.path.join(tatoeba_dir, "cmn_sentences.tsv")
+    with open(cmn_tsv, "w", encoding="utf-8") as f:
+        for row in SAMPLE_TATOEBA_CMN:
+            f.write("\t".join(row) + "\n")
+    links_tsv = os.path.join(tatoeba_dir, "links.tsv")
+    with open(links_tsv, "w", encoding="utf-8") as f:
+        for row in SAMPLE_TATOEBA_LINKS:
+            f.write("\t".join(row) + "\n")
+    print("  {} ({} en / {} cmn / {} links)".format(
+        tatoeba_dir, len(SAMPLE_TATOEBA_EN),
+        len(SAMPLE_TATOEBA_CMN), len(SAMPLE_TATOEBA_LINKS)))
 
 
 if __name__ == "__main__":

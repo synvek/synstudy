@@ -7,6 +7,11 @@ Inputs (place under data/):
                              https://github.com/skywind3000/ECDICT  (MIT)
   data/dicts/*.json          qwerty-learner style word lists. Source:
                              https://github.com/RealKai42/qwerty-learner
+  data/tatoeba/en_sentences.tsv.bz2   Tatoeba English sentences (CC-BY 2.0 FR;
+                                        fetched from the per_language/eng export —
+                                        Tatoeba renamed "en" to ISO639-3 "eng")
+  data/tatoeba/cmn_sentences.tsv.bz2  Tatoeba Mandarin sentences (optional)
+  data/tatoeba/links.tsv.bz2          Tatoeba cross-language links (optional)
 
 Output:
   assets/synstudy.db         Bundled with the app, opened read-only at runtime.
@@ -19,9 +24,11 @@ If data/ is empty, run `python3 scripts/gen_sample_data.py` first to generate a
 small sample dataset for development.
 """
 import argparse
+import bz2
 import csv
 import glob
 import os
+import random
 import re
 import sqlite3
 import sys
@@ -123,6 +130,37 @@ CREATE TABLE root_words (
     PRIMARY KEY (root_key, word_id)
 );
 CREATE INDEX idx_root_words_word ON root_words(word_id);
+
+-- Graded sentence bank built from open corpora (Tatoeba CC-BY 2.0 FR,
+-- Wiktionary CC BY-SA 4.0). Each row is tagged with the exam levels whose
+-- syllabus vocabulary it contains, so the runtime can filter by 四级/六级/
+-- 专四/专八/托福/GRE. `sentence_words` links back to `words` for cloze and
+-- translation-choice quiz generation.
+CREATE TABLE sentence_bank (
+    id           INTEGER PRIMARY KEY,
+    text         TEXT NOT NULL,
+    translation  TEXT DEFAULT '',
+    source       TEXT NOT NULL DEFAULT 'Tatoeba',
+    source_id    TEXT DEFAULT '',
+    cefr_min     TEXT DEFAULT '',
+    exam_levels  TEXT DEFAULT '',
+    difficulty   INTEGER DEFAULT 0,
+    word_count   INTEGER DEFAULT 0
+);
+CREATE INDEX idx_sentence_exam ON sentence_bank(exam_levels);
+CREATE INDEX idx_sentence_diff ON sentence_bank(difficulty);
+CREATE INDEX idx_sentence_cefr ON sentence_bank(cefr_min);
+
+CREATE TABLE sentence_words (
+    sentence_id  INTEGER NOT NULL,
+    word_id      INTEGER NOT NULL,
+    token_index  INTEGER NOT NULL,
+    token_text   TEXT NOT NULL DEFAULT '',
+    is_target    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (sentence_id, token_index)
+);
+CREATE INDEX idx_sw_word ON sentence_words(word_id);
+CREATE INDEX idx_sw_target ON sentence_words(sentence_id, is_target);
 """
 
 # CC-CEDICT line:  Trad Simp [pin1 yin1] /gloss/gloss/
@@ -498,6 +536,253 @@ def build_examples(conn, kaikki_path, max_per_word=MAX_EX_PER_WORD):
     return n
 
 
+# Exam tags we care about for sentence grading. Order defines the difficulty
+# tier used when tagging a sentence with an overall score (higher == harder).
+# `zk`/`gk` are deliberately excluded: 中考/高考 vocab sits below CET-4 and
+# would drown out more advanced sentences.
+SENT_EXAM_TAGS = ["cet4", "cet6", "tem4", "tem8", "toefl", "gre"]
+SENT_EXAM_TIER = {"cet4": 1, "cet6": 2, "tem4": 3, "tem8": 4, "toefl": 4, "gre": 5}
+
+# Sentence-level filters. Sentences outside this window are dropped: too short
+# to be interesting, too long to display cleanly on a card.
+SENT_MIN_TOKENS = 5
+SENT_MAX_TOKENS = 22
+# Cap total sentences kept so the DB stays < ~50 MB extra. Selection prefers
+# sentences with translations and higher-tier vocab.
+SENT_TOTAL_CAP = 120000
+
+# Regex for whitespace tokenization that keeps punctuation attached to the
+# word (matches what the runtime does when reconstructing a cloze blank).
+TOKEN_RE = re.compile(r"\S+")
+ALPHA_RE = re.compile(r"[A-Za-z]{2,}")
+
+
+def _open_maybe_bz2(path):
+    """Open a plain or bz2-compressed text file transparently."""
+    if path.endswith(".bz2"):
+        return bz2.open(path, "rt", encoding="utf-8", errors="replace")
+    return open(path, "r", encoding="utf-8", errors="replace")
+
+
+def _load_exam_vocab(conn):
+    """Return {lowercase_word -> (word_id, set_of_exam_tags, cefr, translation)}.
+
+    Only words with at least one SENT_EXAM_TAGS tag are included; they are the
+    pool used for tagging sentences and generating cloze distractors.
+    """
+    cur = conn.cursor()
+    cur.execute("SELECT id, word, tag, cefr, translation FROM words")
+    out = {}
+    for wid, w, tag, cefr, trans in cur.fetchall():
+        if not tag:
+            continue
+        toks = tag.split()
+        exams = {t for t in toks if t in SENT_EXAM_TAGS}
+        if not exams:
+            continue
+        out[w.strip().lower()] = (wid, exams, cefr or "", trans or "")
+    return out
+
+
+def _load_cfr_map(conn):
+    """Return {lowercase_word -> cefr} for CEFR-tagged words (any word, not
+    just exam vocab). Used to compute a sentence's minimum CEFR level."""
+    cur = conn.cursor()
+    cur.execute("SELECT word, cefr FROM words WHERE cefr <> ''")
+    return {w.strip().lower(): c for w, c in cur.fetchall() if c}
+
+
+def _load_word_ids(conn):
+    """Return {lowercase_word -> word_id} for every entry in `words`."""
+    cur = conn.cursor()
+    cur.execute("SELECT id, word FROM words")
+    return {w.strip().lower(): i for i, w in cur.fetchall()}
+
+
+def _tokenize(text):
+    """Split on whitespace, keeping punctuation attached. Returns list of
+    (index, raw_token, alpha_part_lowercased_or_empty)."""
+    out = []
+    for i, tok in enumerate(TOKEN_RE.findall(text)):
+        m = ALPHA_RE.search(tok)
+        alpha = m.group(0).lower() if m else ""
+        out.append((i, tok, alpha))
+    return out
+
+
+def _score_sentence(tokens, exam_vocab, cefr_map, all_word_ids):
+    """Analyse a tokenized sentence. Returns None if the sentence should be
+    dropped, otherwise (exam_levels_str, cefr_min, difficulty, word_id_map)
+    where word_id_map is {token_index -> (word_id, is_target)}."""
+    if not (SENT_MIN_TOKENS <= len(tokens) <= SENT_MAX_TOKENS):
+        return None
+    alpha_tokens = [t for t in tokens if t[2]]
+    if len(alpha_tokens) < SENT_MIN_TOKENS:
+        return None
+    # Reject sentences that are mostly proper nouns / non-English: require the
+    # dictionary to cover at least 40% of alphabetic tokens (or at least 3,
+    # whichever is bigger). With the full 770k-word ECDICT this is very loose;
+    # it exists mainly to keep tiny sample builds from rejecting everything.
+    known = sum(1 for _i, _raw, a in alpha_tokens if a in all_word_ids)
+    if known < max(3, int(len(alpha_tokens) * 0.4)):
+        return None
+    exams = set()
+    tier = 0
+    cefr_ranks = []
+    word_id_map = {}
+    for idx, raw, a in tokens:
+        if not a:
+            continue
+        wid = all_word_ids.get(a)
+        if wid is None:
+            continue
+        entry = exam_vocab.get(a)
+        is_target = 0
+        if entry is not None:
+            exams |= entry[1]
+            tier = max(tier, max(SENT_EXAM_TIER[t] for t in entry[1]))
+            is_target = 1
+        word_id_map[idx] = (wid, raw, is_target)
+        c = cefr_map.get(a) or (entry[2] if entry else "")
+        if c in CEFR_RANK:
+            cefr_ranks.append(CEFR_RANK[c])
+    if not exams:
+        # No syllabus word -> not useful for exam-graded practice.
+        return None
+    inv = {r: l for l, r in CEFR_RANK.items()}
+    cefr_min = inv[min(cefr_ranks)] if cefr_ranks else ""
+    return (",".join(sorted(exams)), cefr_min, tier, word_id_map)
+
+
+def _load_tatoeba_links(path):
+    """Return {en_sentence_id -> [cmn_sentence_id, ...]} from a Tatoeba links
+    TSV (columns: sentence_id, translation_id, user_id, date_added, ...).
+
+    Both directions are indexed so the caller can look up either side.
+    """
+    if not path or not os.path.exists(path):
+        return {}
+    links = {}
+    with _open_maybe_bz2(path) as f:
+        for line in f:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 2:
+                continue
+            a, b = parts[0], parts[1]
+            links.setdefault(a, []).append(b)
+            links.setdefault(b, []).append(a)
+    return links
+
+
+def _load_tatoeba_cmn(path):
+    """Return {sentence_id -> text} for the Mandarin Tatoeba export."""
+    if not path or not os.path.exists(path):
+        return {}
+    out = {}
+    with _open_maybe_bz2(path) as f:
+        for line in f:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 3:
+                continue
+            out[parts[0]] = parts[2]
+    return out
+
+
+def _iter_tatoeba_en(path):
+    """Yield (id, text) for each English Tatoeba sentence."""
+    with _open_maybe_bz2(path) as f:
+        for line in f:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 3:
+                continue
+            # Some rows have a leading '# ' marker in older dumps; skip those.
+            if parts[0].startswith("#"):
+                continue
+            yield parts[0], parts[2]
+
+
+def build_sentence_bank(conn, en_path, cmn_path=None, links_path=None,
+                        total_cap=SENT_TOTAL_CAP, seed=20260101):
+    """Build `sentence_bank` + `sentence_words` from the Tatoeba English dump.
+
+    Each sentence is tokenized, scored against the exam-tagged vocabulary
+    (see `_score_sentence`) and only kept if it contains at least one 考纲词.
+    When Chinese (`cmn`) + `links` files are provided, an available Chinese
+    translation is attached for the sentence-translation quiz mode. Sentences
+    with a translation are preferred when the cap kicks in.
+
+    Returns (kept_count, with_translation_count).
+    """
+    if not en_path or not os.path.exists(en_path):
+        print("  [warn] {} not found; 句库将为空".format(en_path))
+        return 0, 0
+    exam_vocab = _load_exam_vocab(conn)
+    cefr_map = _load_cfr_map(conn)
+    all_ids = _load_word_ids(conn)
+    if not exam_vocab:
+        print("  [warn] no exam-tagged vocabulary; skipping sentence_bank")
+        return 0, 0
+    links = _load_tatoeba_links(links_path)
+    cmn = _load_tatoeba_cmn(cmn_path)
+
+    # Pass 1: collect candidate sentences (id, text, score_tuple, has_zh).
+    # We keep candidates in memory because the cap step needs to sort them.
+    candidates = []
+    for sid, text in _iter_tatoeba_en(en_path):
+        text = text.strip()
+        if not text or len(text) > 300:
+            continue
+        # Skip Tatoeba rows with markup or non-sentence fragments.
+        if any(c in text for c in ("{", "}", "|", "\u2028")):
+            continue
+        tokens = _tokenize(text)
+        scored = _score_sentence(tokens, exam_vocab, cefr_map, all_ids)
+        if scored is None:
+            continue
+        zh_text = ""
+        if links and cmn:
+            for tgt in links.get(sid, ()):
+                t = cmn.get(tgt)
+                if t and 2 <= len(t) <= 120:
+                    zh_text = t
+                    break
+        candidates.append((sid, text, scored, zh_text, tokens))
+
+    if not candidates:
+        return 0, 0
+
+    # Prefer sentences with a Chinese translation, then higher difficulty tier,
+    # then shorter (easier to read on a card). Deterministic shuffle first so
+    # ties break randomly rather than by Tatoeba upload order.
+    rng = random.Random(seed)
+    rng.shuffle(candidates)
+    candidates.sort(key=lambda c: (0 if c[3] else 1, -c[2][2], len(c[4])))
+    if len(candidates) > total_cap:
+        candidates = candidates[:total_cap]
+
+    cur = conn.cursor()
+    kept = 0
+    with_zh = 0
+    for sid, text, (exams, cefr_min, tier, wid_map), zh_text, tokens in candidates:
+        cur.execute(
+            "INSERT INTO sentence_bank "
+            "(text, translation, source, source_id, cefr_min, exam_levels, difficulty, word_count) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (text, zh_text, "Tatoeba", sid, cefr_min, exams, tier, len(tokens)))
+        sent_id = cur.lastrowid
+        for idx, (wid, raw, is_target) in wid_map.items():
+            cur.execute(
+                "INSERT OR IGNORE INTO sentence_words "
+                "(sentence_id, word_id, token_index, token_text, is_target) "
+                "VALUES (?,?,?,?,?)",
+                (sent_id, wid, idx, raw, is_target))
+        kept += 1
+        if zh_text:
+            with_zh += 1
+    conn.commit()
+    return kept, with_zh
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default=os.path.join(ROOT, "data"))
@@ -572,6 +857,24 @@ def main():
     root_total, root_links = build_roots(conn, wordroot_path)
     print("  {} roots, {} word links".format(root_total, root_links))
 
+    tatoeba_dir = os.path.join(args.data_dir, "tatoeba")
+    en_path = os.path.join(tatoeba_dir, "en_sentences.tsv.bz2")
+    if not os.path.exists(en_path):
+        en_path = os.path.join(tatoeba_dir, "en_sentences.tsv")
+    cmn_path = os.path.join(tatoeba_dir, "cmn_sentences.tsv.bz2")
+    if not os.path.exists(cmn_path):
+        cmn_path = os.path.join(tatoeba_dir, "cmn_sentences.tsv")
+    links_path = os.path.join(tatoeba_dir, "links.tsv.bz2")
+    if not os.path.exists(links_path):
+        links_path = os.path.join(tatoeba_dir, "links.tsv")
+    print("Building sentence bank (Tatoeba) from {} ...".format(en_path))
+    sent_total, sent_zh = build_sentence_bank(
+        conn, en_path,
+        cmn_path if os.path.exists(cmn_path) else None,
+        links_path if os.path.exists(links_path) else None)
+    print("  inserted {} graded sentences ({} with Chinese translation)".format(
+        sent_total, sent_zh))
+
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("word_total", str(total_words)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
@@ -585,7 +888,9 @@ def main():
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("root_total", str(root_total)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
-                ("schema_version", "6"))
+                ("sentence_total", str(sent_total)))
+    cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
+                ("schema_version", "7"))
     conn.commit()
     conn.close()
 
