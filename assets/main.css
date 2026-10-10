@@ -318,6 +318,8 @@ h1, h2, h3, h4 { color: var(--text); }
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 26px 30px; min-height: 200px;
 }
+/* Mobile master-detail "push" back control; hidden on desktop. */
+.dict-back { display: none; }
 .empty-detail {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   min-height: 340px; text-align: center; gap: 12px; padding: 24px;
@@ -809,6 +811,14 @@ h1, h2, h3, h4 { color: var(--text); }
   .dict-body { grid-template-columns: 1fr; gap: 16px; }
   .dict-results { max-height: none; }
   .dict-detail { padding: 20px 18px; }
+  /* Master-detail push: before picking, show only the list (hide the empty
+     placeholder); after picking, hide the list and show the detail full-width
+     with a back control, so the definition is immediately on screen. */
+  .dict-body:not(.has-detail) .dict-detail { display: none; }
+  .dict-body.has-detail .dict-results { display: none; }
+  .dict-back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px;
+    background: none; border: none; color: var(--primary); font-size: 14px; font-weight: 500;
+    cursor: pointer; padding: 0; }
   .wd-word { font-size: 30px; }
   .wd-forms { grid-template-columns: repeat(3, 1fr); }
   .cat-grid { grid-template-columns: 1fr; gap: 12px; }

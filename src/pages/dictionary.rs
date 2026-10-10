@@ -92,6 +92,9 @@ pub fn Dictionary() -> Element {
     let sel_zh = selected_zh().clone();
     let selected_id = sel.as_ref().map(|w| w.id);
     let selected_zh_id = sel_zh.as_ref().map(|e| e.id);
+    // On narrow screens the layout pushes to the detail pane once an entry is
+    // picked; `has-detail` drives that CSS master-detail toggle.
+    let has_detail = sel.is_some() || sel_zh.is_some();
     let (word_total, zh_total) = counts();
     let count_label = if cur_mode == SearchMode::Zh2En {
         format!("共收录 {} 汉英词条", zh_total)
@@ -208,7 +211,11 @@ pub fn Dictionary() -> Element {
                     placeholder: "{cur_mode.placeholder()}",
                     value: "{query}",
                     autofocus: true,
-                    oninput: move |e| query.set(e.value()),
+                    oninput: move |e| {
+                        query.set(e.value());
+                        selected.set(None);
+                        selected_zh.set(None);
+                    },
                     onkeydown: onkey_search,
                 }
                 if !query().is_empty() {
@@ -226,7 +233,7 @@ pub fn Dictionary() -> Element {
                 button { class: "btn primary", onclick: open_first, "查询" }
             }
 
-            div { class: "dict-body",
+            div { class: if has_detail { "dict-body has-detail" } else { "dict-body" },
                 if cur_mode == SearchMode::Zh2En {
                     // --- 汉英 (Chinese -> English) ---
                     div { class: "dict-results",
@@ -256,6 +263,7 @@ pub fn Dictionary() -> Element {
                     }
 
                     div { class: "dict-detail",
+                        button { class: "dict-back", onclick: move |_| { selected.set(None); selected_zh.set(None); }, "\u{2190} 返回列表" }
                         match sel_zh {
                             Some(entry) => rsx! {
                                 ZhDetail {
@@ -320,6 +328,7 @@ pub fn Dictionary() -> Element {
                     }
 
                     div { class: "dict-detail",
+                        button { class: "dict-back", onclick: move |_| { selected.set(None); selected_zh.set(None); }, "\u{2190} 返回列表" }
                         match sel {
                             Some(w) => rsx! { WordDetail { key: "{w.id}", word: w } },
                             None => rsx! {

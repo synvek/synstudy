@@ -727,6 +727,7 @@ fn RoundReview(
     let known_count = pairs.iter().filter(|(_, k)| matches!(k, Some(true))).count();
     let unknown_count = pairs.iter().filter(|(_, k)| matches!(k, Some(false))).count();
     let sel = detail().clone();
+    let has_detail = sel.is_some();
     let selected_id = sel.as_ref().map(|w| w.id);
 
     rsx! {
@@ -741,7 +742,7 @@ fn RoundReview(
                 button { class: "btn ghost", onclick: move |_| page.set(Page::Categories), "词库" }
             }
             p { class: "muted", "共 {pairs.len()} 词 · 认识 {known_count} · 不认识 {unknown_count}" }
-            div { class: "dict-body",
+            div { class: if has_detail { "dict-body has-detail" } else { "dict-body" },
                 div { class: "dict-results",
                     for (i, (w, known)) in pairs.iter().enumerate() {
                         div {
@@ -770,6 +771,7 @@ fn RoundReview(
                     }
                 }
                 div { class: "dict-detail",
+                    button { class: "dict-back", onclick: move |_| detail.set(None), "\u{2190} 返回列表" }
                     match sel {
                         Some(w) => rsx! { WordDetail { key: "{w.id}", word: w } },
                         None => rsx! {
@@ -814,6 +816,7 @@ fn WordList(on_back: EventHandler<()>, mut detail: Signal<Option<Word>>) -> Elem
         .collect();
     let learned = rows.iter().filter(|(_, cls, _)| *cls != "ws new").count();
     let sel = detail().clone();
+    let has_detail = sel.is_some();
     let selected_id = sel.as_ref().map(|w| w.id);
 
     rsx! {
@@ -828,7 +831,7 @@ fn WordList(on_back: EventHandler<()>, mut detail: Signal<Option<Word>>) -> Elem
                 button { class: "btn ghost", onclick: move |_| page.set(Page::Categories), "词库" }
             }
             p { class: "muted", "共 {rows.len()} 词 · 已学 {learned} · 未学 {rows.len() - learned}" }
-            div { class: "dict-body",
+            div { class: if has_detail { "dict-body has-detail" } else { "dict-body" },
                 div { class: "dict-results",
                     for (i, (w, cls, label)) in rows.iter().enumerate() {
                         div {
@@ -846,6 +849,7 @@ fn WordList(on_back: EventHandler<()>, mut detail: Signal<Option<Word>>) -> Elem
                     }
                 }
                 div { class: "dict-detail",
+                    button { class: "dict-back", onclick: move |_| detail.set(None), "\u{2190} 返回列表" }
                     match sel {
                         Some(w) => rsx! { WordDetail { key: "{w.id}", word: w } },
                         None => rsx! {
