@@ -18,6 +18,8 @@ Cargo.lock
 
 # Built dictionary database (regenerate via scripts/build_dict_db.py)
 /assets/synstudy.db
+# Generated third-party notices (regenerate via scripts/gen_notices.py)
+/assets/THIRD-PARTY-NOTICES.txt
 
 # OS / editor
 .DS_Store

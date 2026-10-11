@@ -34,6 +34,7 @@ CATEGORIES = [
     ("gaozhong", "高中",        "tag"),
     ("cet4",     "大学英语四级", "tag"),
     ("cet6",     "大学英语六级", "tag"),
+    ("kaoyan",   "考研英语",     "tag"),
     ("tem4",     "英语专业四级", "json"),
     ("tem8",     "英语专业八级", "json"),
     ("toefl",    "托福",        "tag"),
@@ -42,11 +43,12 @@ CATEGORIES = [
 
 # ECDICT `tag` value used for each tag-sourced category.
 CAT_TAG = {"chuzhong": "zk", "gaozhong": "gk", "cet4": "cet4",
-           "cet6": "cet6", "toefl": "toefl", "gre": "gre"}
+           "cet6": "cet6", "kaoyan": "ky", "toefl": "toefl", "gre": "gre"}
 
 # Approximate frequency tier per category (lower == more common).
 TIER = {"xiaoxue": 800, "chuzhong": 1500, "gaozhong": 3000, "cet4": 4500,
-        "cet6": 6500, "tem4": 7000, "toefl": 9500, "gre": 15000, "tem8": 16000}
+        "cet6": 6500, "kaoyan": 6800, "tem4": 7000, "toefl": 9500,
+        "tem8": 16000, "gre": 15000}
 
 # --- Sample vocabulary -------------------------------------------------------
 ENTRIES = [
@@ -159,6 +161,18 @@ ENTRIES = [
     ("anonymous", "/əˈnɒnɪməs/", "adj. 匿名的", "not named", "adj:100", "cet6"),
     ("apprehend", "/ˌæprɪˈhend/", "v. 逮捕；理解", "to arrest or grasp", "v:100", "cet6"),
     ("arbitrary", "/ˈɑːbɪtrəri/", "adj. 任意的", "based on random choice", "adj:100", "cet6"),
+
+    # 考研 (kaoyan)
+    ("candidate", "/ˈkændɪdət/", "n. 候选人；应试者", "a person applying for a job or seat", "n:100", "kaoyan"),
+    ("compulsory", "/kəmˈpʌlsəri/", "adj. 义务的；强制的", "required by law", "adj:100", "kaoyan"),
+    ("conceive", "/kənˈsiːv/", "v. 设想；构想", "to form an idea or plan", "v:100", "kaoyan"),
+    ("criterion", "/kraɪˈtɪəriən/", "n. 标准；准则", "a principle used to judge something", "n:100", "kaoyan"),
+    ("equilibrium", "/ˌiːkwɪˈlɪbriəm/", "n. 平衡；均衡", "a state of balance", "n:100", "kaoyan"),
+    ("faculty", "/ˈfæklti/", "n. 能力；全体教员", "the teaching staff of a university", "n:100", "kaoyan"),
+    ("identity", "/aɪˈdentəti/", "n. 身份；同一性", "who or what a person is", "n:100", "kaoyan"),
+    ("illuminate", "/ɪˈluːmɪneɪt/", "v. 阐明；照亮", "to make clear or bright", "v:100", "kaoyan"),
+    ("obstacle", "/ˈɒbstəkl/", "n. 障碍", "something that blocks progress", "n:100", "kaoyan"),
+    ("principle", "/ˈprɪnsəpl/", "n. 原则；原理", "a fundamental truth or rule", "n:100", "kaoyan"),
 
     # 托福 (toefl)
     ("hypothesis", "/haɪˈpɒθəsɪs/", "n. 假说", "a proposed explanation", "n:100", "toefl"),

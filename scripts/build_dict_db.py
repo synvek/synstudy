@@ -55,6 +55,7 @@ CATEGORIES = [
     {"key": "gaozhong", "name": "高中",         "source": "tag", "tag": "gk"},
     {"key": "cet4",     "name": "大学英语四级", "source": "tag", "tag": "cet4"},
     {"key": "cet6",     "name": "大学英语六级", "source": "tag", "tag": "cet6"},
+    {"key": "kaoyan",   "name": "考研英语",     "source": "tag", "tag": "ky"},
     {"key": "tem4",     "name": "英语专业四级", "source": "json",
      "globs": ["tem4.json"]},
     {"key": "tem8",     "name": "英语专业八级", "source": "json",
@@ -551,8 +552,8 @@ def build_examples(conn, kaikki_path, max_per_word=MAX_EX_PER_WORD):
 # tier used when tagging a sentence with an overall score (higher == harder).
 # `zk`/`gk` are deliberately excluded: 中考/高考 vocab sits below CET-4 and
 # would drown out more advanced sentences.
-SENT_EXAM_TAGS = ["cet4", "cet6", "tem4", "tem8", "toefl", "gre"]
-SENT_EXAM_TIER = {"cet4": 1, "cet6": 2, "tem4": 3, "tem8": 4, "toefl": 4, "gre": 5}
+SENT_EXAM_TAGS = ["cet4", "cet6", "ky", "tem4", "tem8", "toefl", "gre"]
+SENT_EXAM_TIER = {"cet4": 1, "cet6": 2, "ky": 3, "tem4": 3, "tem8": 4, "toefl": 4, "gre": 5}
 
 # Sentence-level filters. Sentences outside this window are dropped: too short
 # to be interesting, too long to display cleanly on a card.
@@ -971,8 +972,27 @@ def main():
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("sentence_total", str(sent_total)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
+                ("sentence_trans_total", str(sent_zh)))
+    cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("schema_version", "7"))
     conn.commit()
+
+    # Render the release-bundle licence declaration from license/README.md,
+    # limited to the data sources that actually landed in this build, and stamp
+    # its content hash into meta. Adding a new source without declaring it in
+    # license/README.md (or vice versa) therefore shows up as a notices diff.
+    try:
+        import gen_notices
+        notices_ver = gen_notices.generate_from_conn(
+            conn,
+            os.path.join(ROOT, "license", "README.md"),
+            os.path.join(os.path.dirname(args.out), "THIRD-PARTY-NOTICES.txt"))
+        cur.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?,?)",
+                    ("notices_version", notices_ver))
+        conn.commit()
+        print("  THIRD-PARTY-NOTICES.txt generated (version {})".format(notices_ver))
+    except Exception as e:
+        print("  [warn] THIRD-PARTY-NOTICES 生成失败: {}".format(e))
     conn.close()
 
     size_mb = os.path.getsize(args.out) / (1024 * 1024)

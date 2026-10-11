@@ -8,7 +8,7 @@
 | [ECDICT](https://github.com/skywind3000/ECDICT) | `words` 表：英汉释义、音标、词形变化、词频、考试标签 | MIT | [`ECDICT-LICENSE.txt`](./ECDICT-LICENSE.txt) |
 | [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cc-cedict) | `zh_entries` 表：汉英词典（中文主键 / 拼音 / 繁体 / 英文释义） | CC-BY-SA 4.0 | [`CC-CEDICT-LICENSE.txt`](./CC-CEDICT-LICENSE.txt) |
 | [Wiktionary / kaikki.org](https://kaikki.org/dictionary/English/) | `examples` 表：分级词库词汇的自然例句 | CC BY-SA 4.0 | [`Wiktionary-kaikki-LICENSE.txt`](./Wiktionary-kaikki-LICENSE.txt) |
-| [Tatoeba](https://tatoeba.org/) | `sentence_bank` / `sentence_words` 表：按考纲分级的例句（四/六/专四/专八/托福/GRE） | CC-BY 2.0 FR | [`Tatoeba-LICENSE.txt`](./Tatoeba-LICENSE.txt) |
+| [Tatoeba](https://tatoeba.org/) | `sentence_bank` / `sentence_words` 表：按考纲分级的例句（四/六/考研/专四/专八/托福/GRE） | CC-BY 2.0 FR | [`Tatoeba-LICENSE.txt`](./Tatoeba-LICENSE.txt) |
 | [OpenCC](https://github.com/BYVoid/OpenCC) | 繁→简转换表：仅用于构建阶段将 `sentence_bank` 中文译文转为简体 | Apache-2.0 | [`OpenCC-LICENSE.txt`](./OpenCC-LICENSE.txt) |
 | [CEFR-J](https://github.com/openlanguageprofiles/olp-en-cefrj) | `words.cefr` 列：A1–C2 难度等级标注 | 免费商用**须引用**（C1/C2 部分 CC BY-SA 4.0） | [`CEFR-J-NOTICE.txt`](./CEFR-J-NOTICE.txt) |
 
