@@ -1,0 +1,57 @@
+# Android NDK cross-compilation setup.
+#
+# Root cause of the `unknown type name '__int32_t'` / "Unsupported architecture"
+# failures when cc-rs builds bundled C libs (libsqlite3-sys today, openssl-sys
+# tomorrow) for *-linux-android targets:
+#
+#   The Xcode-driven shell exports C_INCLUDE_PATH (and CPLUS_INCLUDE_PATH /
+#   CPATH) pointing at the macOS SDK usr/include. clang turns those env vars into
+#   `-c-isystem <MacOSX.sdk>/usr/include`, which is searched BEFORE the NDK
+#   sysroot, so <stdint.h>/<stdlib.h> resolve to Darwin headers and blow up on an
+#   Android target. Verified experimentally: clearing C_INCLUDE_PATH makes the NDK
+#   wrapper clang succeed; adding --sysroot while C_INCLUDE_PATH is set does NOT
+#   help (the env-provided -c-isystem still wins). SDKROOT alone is a red herring.
+#
+# Fix: force-clear the include-path env vars so the NDK wrapper clang's own
+# target triple selects the correct sysroot automatically. No --sysroot/-isysroot
+# flags are needed; the wrapper (aarch64-linux-android24-clang) already knows the
+# NDK sysroot relative to its own location.
+
+[env]
+ANDROID_NDK_HOME = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198"
+NDK_HOME = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198"
+
+# Neutralize the macOS SDK leaks. `force = true` + empty value overrides the
+# inherited Xcode-set values; clang treats an empty list as "no extra dirs".
+SDKROOT = { value = "", force = true }
+C_INCLUDE_PATH = { value = "", force = true }
+CPLUS_INCLUDE_PATH = { value = "", force = true }
+CPATH = { value = "", force = true }
+OBJC_INCLUDE_PATH = { value = "", force = true }
+
+# --- aarch64 (mainstream phones/tablets, min API 24) ---
+CC_aarch64_linux_android = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android24-clang"
+CXX_aarch64_linux_android = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android24-clang++"
+AR_aarch64_linux_android = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
+
+# --- x86_64 (emulator images, min API 24) ---
+CC_x86_64_linux_android = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android24-clang"
+CXX_x86_64_linux_android = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android24-clang++"
+AR_x86_64_linux_android = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
+
+# --- armv7 (legacy 32-bit devices, min API 24) ---
+CC_armv7_linux_androideabi = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi24-clang"
+CXX_armv7_linux_androideabi = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi24-clang++"
+AR_armv7_linux_androideabi = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
+
+[target.aarch64-linux-android]
+linker = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android24-clang"
+ar = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
+
+[target.x86_64-linux-android]
+linker = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android24-clang"
+ar = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
+
+[target.armv7-linux-androideabi]
+linker = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/armv7a-linux-androideabi24-clang"
+ar = "/Users/yangxiongbo/Library/Android/sdk/ndk/30.0.14904198/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"

@@ -5,15 +5,47 @@ edition = "2021"
 description = "Offline multi-platform English learning tool built with Dioxus"
 license = "MIT"
 
+# Library target: consumed by the thin `synstudy` desktop binary AND directly
+# by iOS (as a staticlib linked into the Xcode app) and Android (as a cdylib
+# loaded through JNI from the WryActivity). Keeping the app entry as `main`
+# (no_mangle, extern "C") is what dioxus-desktop's mobile shim dlsyms into.
+[lib]
+name = "synstudy"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "synstudy"
+path = "src/main.rs"
+
 [dependencies]
 dioxus = { version = "0.7", features = ["desktop"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-directories = "5"
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 fsrs = "6"
+
+# Desktop-only: `directories` returns a macOS/Linux/Windows app-data folder.
+# Not usable on iOS/Android sandboxes, so we gate it out and route through
+# `crate::platform` instead.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+directories = "5"
+
+# iOS native bridges: bundle path lookup only.
+# TTS on iOS currently falls through to the WebView `speechSynthesis` API
+# (works on iOS 17+ WKWebView); a native AVSpeechSynthesizer bridge via
+# `objc2-avf-audio` is tracked as a follow-up.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSURL", "NSBundle"] }
+
+# Android native bridges: `ndk-context` for JVM/AActivity handles, `jni` for
+# driving `android.speech.tts.TextToSpeech` from Rust.
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
+ndk-context = "0.1"
+jni = "0.21"
 
 [features]
 default = ["desktop"]

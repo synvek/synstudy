@@ -24,6 +24,9 @@ Cargo.lock
 # OS / editor
 .DS_Store
 
+# Output directory
+/dist
+
 # Others
 /bak
 /.qoder

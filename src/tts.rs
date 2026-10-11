@@ -1,8 +1,14 @@
 //! Offline text-to-speech built on the webview's `SpeechSynthesis` API.
 //!
 //! Dioxus' `document::eval` dispatches JavaScript into the host webview on
-//! desktop (wry) and is a harmless no-op where no DOM exists, so the same
-//! helper works across targets without a native dependency or network audio.
+//! desktop (wry) and on mobile (WKWebView on iOS, system WebView on Android);
+//! on all three the same call reaches a browser-standard `speechSynthesis`
+//! implementation. Support matrix:
+//! - macOS / Linux / Windows: works out of the box (WebKit / WebKitGTK).
+//! - Android: works when a TTS engine is installed (Google TTS, Huawei, etc.).
+//! - iOS 17+: works in WKWebView; older iOS versions silently no-op. A native
+//!   `AVSpeechSynthesizer` bridge is planned but not shipped yet.
+//!
 //! All calls are fire-and-forget: we never wait on the returned evaluator.
 
 use dioxus::document;

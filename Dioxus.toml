@@ -3,9 +3,24 @@ name = "synstudy"
 default_platform = "desktop"
 
 # Directory containing bundled assets (stylesheets, images, dictionary db).
-[application.asset_dir]
-path = "assets"
+# In dioxus-cli 0.7.10 this must be a plain path string under [application].
+asset_dir = "assets"
 
+# Bundle identifier + version used across macOS .app / iOS .ipa / Android APK.
+# Matches the reverse-DNS prefix already used by `directories::ProjectDirs`.
+[bundle]
+identifier = "com.synstudy.synstudy"
+publisher = "synstudy"
+version = "0.1.0"
+# Files copied into the platform's bundle resource directory.
+# Paths are relative to the crate root.
+resources = [
+    "assets/synstudy.db",
+    "assets/THIRD-PARTY-NOTICES.txt",
+]
+
+# Legacy desktop window settings; the CLI tolerates (and largely ignores) this
+# block in 0.7.10, but we keep it for documentation and future revival.
 [desktop]
 title = "synstudy - 英语学习工具"
 width = 1180
@@ -14,3 +29,16 @@ min_width = 900
 min_height = 640
 resizable = true
 maximizable = true
+
+[ios]
+identifier = "com.synstudy.synstudy"
+publisher = "synstudy"
+# Minimum iOS the app can install on. WKWebView `speechSynthesis` needs 17+
+# for audio output; the UI itself works down to 15.
+deployment_target = "15.0"
+
+[android]
+identifier = "com.synstudy.synstudy"
+publisher = "synstudy"
+min_sdk = 24
+target_sdk = 34
