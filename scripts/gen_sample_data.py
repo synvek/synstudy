@@ -38,16 +38,18 @@ CATEGORIES = [
     ("tem4",     "英语专业四级", "json"),
     ("tem8",     "英语专业八级", "json"),
     ("toefl",    "托福",        "tag"),
+    ("ielts",    "雅思",        "tag"),
     ("gre",      "GRE",        "tag"),
 ]
 
 # ECDICT `tag` value used for each tag-sourced category.
 CAT_TAG = {"chuzhong": "zk", "gaozhong": "gk", "cet4": "cet4",
-           "cet6": "cet6", "kaoyan": "ky", "toefl": "toefl", "gre": "gre"}
+           "cet6": "cet6", "kaoyan": "ky", "toefl": "toefl", "ielts": "ielts",
+           "gre": "gre"}
 
 # Approximate frequency tier per category (lower == more common).
 TIER = {"xiaoxue": 800, "chuzhong": 1500, "gaozhong": 3000, "cet4": 4500,
-        "cet6": 6500, "kaoyan": 6800, "tem4": 7000, "toefl": 9500,
+        "cet6": 6500, "kaoyan": 6800, "tem4": 7000, "toefl": 9500, "ielts": 9200,
         "tem8": 16000, "gre": 15000}
 
 # --- Sample vocabulary -------------------------------------------------------
@@ -195,6 +197,20 @@ ENTRIES = [
     ("germination", "/ˌdʒɜːmɪˈneɪʃn/", "n. 发芽", "the process of a seed sprouting", "n:100", "toefl"),
     ("terrestrial", "/təˈrestriəl/", "adj. 陆地的", "relating to land", "adj:100", "toefl"),
     ("aquatic", "/əˈkwætɪk/", "adj. 水生的", "relating to water", "adj:100", "toefl"),
+
+    # 雅思 (ielts)
+    ("demographic", "/ˌdeməˈɡræfɪk/", "adj. 人口统计的", "relating to population statistics", "adj:100", "ielts"),
+    ("urbanisation", "/ˌɜːbənaɪˈzeɪʃn/", "n. 城市化", "the growth of towns and cities", "n:100", "ielts"),
+    ("emission", "/ɪˈmɪʃn/", "n. 排放（物）", "substance released into the air", "n:100", "ielts"),
+    ("sustainable", "/səˈsteɪnəbl/", "adj. 可持续的", "able to continue over time", "adj:100", "ielts"),
+    ("curriculum", "/kəˈrɪkjələm/", "n. 课程体系", "the subjects taught at a school", "n:100", "ielts"),
+    ("tuition", "/tjuˈɪʃn/", "n. 学费；教学", "teaching; the fee for it", "n:100", "ielts"),
+    ("obesity", "/əʊˈbiːsəti/", "n. 肥胖症", "the condition of being very fat", "n:100", "ielts"),
+    ("immune", "/ɪˈmjuːn/", "adj. 免疫的", "protected from disease", "adj:100", "ielts"),
+    ("heritage", "/ˈherɪtɪdʒ/", "n. 遗产", "traditions and buildings from the past", "n:100", "ielts"),
+    ("inhabitant", "/ɪnˈhæbɪtənt/", "n. 居民", "a person who lives in a place", "n:100", "ielts"),
+    ("manufacture", "/ˌmænjuˈfæktʃə(r)/", "v. 制造", "to make goods on a large scale", "v:100", "ielts"),
+    ("commute", "/kəˈmjuːt/", "v. 通勤", "to travel regularly to work", "v:100", "ielts"),
 
     # GRE (gre)
     ("ubiquitous", "/juːˈbɪkwɪtəs/", "adj. 无所不在的", "present everywhere", "adj:100", "gre"),

@@ -155,6 +155,7 @@ pub enum ExamFilter {
     Tem4,
     Tem8,
     Toefl,
+    Ielts,
     Gre,
 }
 
@@ -169,6 +170,7 @@ impl ExamFilter {
             ExamFilter::Tem4 => Some("tem4"),
             ExamFilter::Tem8 => Some("tem8"),
             ExamFilter::Toefl => Some("toefl"),
+            ExamFilter::Ielts => Some("ielts"),
             ExamFilter::Gre => Some("gre"),
         }
     }
@@ -182,6 +184,7 @@ impl ExamFilter {
             ExamFilter::Tem4 => "专四",
             ExamFilter::Tem8 => "专八",
             ExamFilter::Toefl => "托福",
+            ExamFilter::Ielts => "雅思",
             ExamFilter::Gre => "GRE",
         }
     }
@@ -195,6 +198,7 @@ impl ExamFilter {
             ExamFilter::Tem4,
             ExamFilter::Tem8,
             ExamFilter::Toefl,
+            ExamFilter::Ielts,
             ExamFilter::Gre,
         ]
     }

@@ -2,7 +2,7 @@
 
 一个使用 **Rust + Dioxus** 构建的**纯客户端、离线优先**桌面英语学习工具（macOS / Windows / Linux）。
 
-内置**英汉 / 汉英双向词典**与**分级词库**（初中 / 高中 / 四级 / 六级 / 考研 / 托福 / GRE 开箱即用；小学 / 专四 / 专八 需自备官方大纲词表选装构建），支持**学习模式**与基于**间隔重复（SRS）**的**背诵 / 复习模式**，并记录本地学习进度与统计。
+内置**英汉 / 汉英双向词典**与**分级词库**（初中 / 高中 / 四级 / 六级 / 考研 / 托福 / 雅思 / GRE 开箱即用；小学 / 专四 / 专八 需自备官方大纲词表选装构建），支持**学习模式**与基于**间隔重复（SRS）**的**背诵 / 复习模式**，并记录本地学习进度与统计。
 
 > 词典数据经一次性构建脚本预处理为**只读 SQLite**，随应用打包；用户学习进度写入本地**可写 SQLite**（应用数据目录）。**无后端、无网络依赖**。
 
@@ -13,10 +13,10 @@
 - **英汉词典查询**：前缀 / 精确检索，展示音标、中文释义、英文释义、词性、词形变化（exchange）、考试标签、词频（BNC / 柯林斯）；并展示 **CEFR 难度等级**（来自 CEFR-J）与 **自然例句**（来自 Wiktionary，仅分级词库词汇）。
 - **CEFR 难度标注**：基于 **CEFR-J** 词库档案为单词标注 A1–C2 等级，详情面板以徽章展示，可用于按难度筛选 / 分级学习。
 - ** Wiktionary 自然例句**：由 **kaikki.org** 从 Wiktionary 提取的真实例句，针对分级词库词汇入库（每词最多 3 句），在详情面板展示并附来源出处。
-- **考试分级句库**（四/六/考研/专四/专八/托福/GRE）：从 **Tatoeba** 开放句库（CC-BY 2.0 FR）提取自然句，按 ECDICT 考纲标签自动打上 `exam_levels`，可选拼接 Tatoeba 自己的中↔英链接作为参考译文（并经 **OpenCC** 将繁体转为简体）。支持三种测验题型：**选词填空**（Cloze）、**句意选择**（中文释义四选一）、**听音辨词**（TTS + 四选一）。词详情面板同步展示考试句库例句。
-  - ⚠️ **不包含真题**：CET-4/6、TEM-4/8、TOEFL、GRE 真题受版权保护，本项目**不分发也不爬取**任何真题内容；句库完全由开放语料构成，仅按考纲词汇标记级别。
+- **考试分级句库**（四/六/考研/专四/专八/托福/雅思/GRE）：从 **Tatoeba** 开放句库（CC-BY 2.0 FR）提取自然句，按 ECDICT 考纲标签自动打上 `exam_levels`，可选拼接 Tatoeba 自己的中↔英链接作为参考译文（并经 **OpenCC** 将繁体转为简体）。支持三种测验题型：**选词填空**（Cloze）、**句意选择**（中文释义四选一）、**听音辨词**（TTS + 四选一）。词详情面板同步展示考试句库例句。
+  - ⚠️ **不包含真题**：CET-4/6、TEM-4/8、TOEFL、IELTS、GRE 真题受版权保护，本项目**不分发也不爬取**任何真题内容；句库完全由开放语料构成，仅按考纲词汇标记级别。
 - **汉英词典查询**：基于 **CC-CEDICT**（真正以中文词为主键的汉英词典），支持**中文 / 拼音 / 繁体**检索，按「精确词条 → 前缀 → 子串」排序，覆盖成语、复合词与专有名词；详情面板可将英文释义**回链到英汉词典**（点击查看音标 / 词频 / 考试标签）。词典页顶部一键切换英汉 / 汉英方向。
-- **分级词库浏览**：默认 7 大分类（提供官方大纲词表后最多 10 类），显示词条数与学习进度百分比。
+- **分级词库浏览**：默认 8 大分类（提供官方大纲词表后最多 11 类），显示词条数与学习进度百分比。
 - **学习模式**：按词库原始顺序逐词卡片学习，翻面查看释义，标记「认识 / 不认识」，进度实时持久化。
 - **背诵 / 复习模式（SRS）**：SM-2 lite 算法，四档自评（重来 / 困难 / 良好 / 轻松）自动排期，仅拉取到期词组成复习队列。
 - **进度统计**：各词库未学 / 学习中 / 复习中 / 已掌握分布。
@@ -101,11 +101,11 @@ bash scripts/fetch_data.sh
 | `ecdict.csv`（~63MB，77 万词条）+ `wordroot.txt` | [ECDICT](https://github.com/skywind3000/ECDICT)（MIT） | 主词典：音标 / 双解释义 / 词形变化 / 词频 / 考试标签 |
 | `cedict.txt`（~10MB，12.5 万词条） | [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cc-cedict)（CC-BY-SA 4.0） | **汉英词典**：中文主键 + 拼音 + 繁体 + 英文释义 |
 | `kaikki.en.jsonl`（~3.3GB，构建时仅过滤分级词库） | [Wiktionary / kaikki.org](https://kaikki.org/dictionary/English/)（CC BY-SA 4.0） | **自然例句**：提取分级词库词汇的例句入 `examples` 表 |
-| `tatoeba/en_sentences.tsv.bz2`（~50MB）+ `cmn_sentences.tsv.bz2`（~10MB）+ `links.tsv`（~200MB） | [Tatoeba](https://tatoeba.org/)（CC-BY 2.0 FR） | **考试分级句库**：`sentence_bank` / `sentence_words` 表，按考纲词自动标记四/六/考研/专四/专八/托福/GRE |
+| `tatoeba/en_sentences.tsv.bz2`（~50MB）+ `cmn_sentences.tsv.bz2`（~10MB）+ `links.tsv`（~200MB） | [Tatoeba](https://tatoeba.org/)（CC-BY 2.0 FR） | **考试分级句库**：`sentence_bank` / `sentence_words` 表，按考纲词自动标记四/六/考研/专四/专八/托福/雅思/GRE |
 | `opencc/TSCharacters.txt`、`TSPhrases.txt`（~250KB） | [OpenCC](https://github.com/BYVoid/OpenCC)（Apache-2.0） | 构建阶段将 Tatoeba 中文译文由**繁体转为简体**（仅存转换后文本，不入库映射表） |
 | `cefrj/*.csv`（~280KB） | [CEFR-J](https://github.com/openlanguageprofiles/olp-en-cefrj)（**须引用署名**，C1/C2 为 CC BY-SA 4.0） | **难度等级**：为 `words.cefr` 标注 A1–C2 |
 
-> 初中 / 高中 / 四级 / 六级 / 考研 / 托福 / GRE 直接由 ECDICT 的 `tag` 字段（`zk/gk/cet4/cet6/ky/toefl/gre`）生成，无需额外下载。
+> 初中 / 高中 / 四级 / 六级 / 考研 / 托福 / 雅思 / GRE 直接由 ECDICT 的 `tag` 字段（`zk/gk/cet4/cet6/ky/toefl/ielts/gre`）生成，无需额外下载。
 >
 > ⚠️ **小学 / 专四 / 专八词表不再自动下载**：原数据源 qwerty-learner（GPL-3.0 传染风险）与 kajweb/dict（无开源许可证）已因合规原因移除。如需这三个分类，请自行整理**官方大纲词表**为 `data/dicts/xiaoxue.json` / `tem4.json` / `tem8.json`（格式 `[{"name": "word", ...}]`，仅需 `name` 字段选词，释义一律取自 ECDICT）；未提供时对应分类会被构建脚本自动跳过。
 >
@@ -137,6 +137,7 @@ python3 scripts/build_dict_db.py
   cet6       大学英语六级     5407 words
   kaoyan     考研         ~5000 words   # 实际数量以构建输出为准
   toefl      托福         6974 words
+  ielts      雅思         ~5000 words   # 实际数量以构建输出为准
   gre        GRE        7504 words
   xiaoxue    小学          (skipped: no word list)   # 提供官方大纲词表后自动构建
   tem4       英语专业四级     (skipped: no word list)
@@ -207,7 +208,7 @@ cargo test                  # SRS 排期算法单元测试
 - `category_words(category_id, word_id, order_index)` — 保留原词库顺序，主键 `(category_id, word_id)`
 - `zh_entries(id, traditional, simplified, pinyin, pinyin_plain, glosses)` — CC-CEDICT 汉英（中文主键），simplified/traditional/pinyin_plain 建索引
 - `examples(id, word_id, text, source, order_index)` — Wiktionary（kaikki.org）自然例句，仅针对分级词库词汇，按 `word_id` 建索引
-- `sentence_bank(id, text, translation, source, source_id, cefr_min, exam_levels, difficulty, word_count)` — Tatoeba 分级句库；`exam_levels` 为逗号分隔的考纲标签（`cet4,cet6,ky,tem4,tem8,toefl,gre`），`difficulty` 为 1..=5 的推导难度层。建索引：`exam_levels` / `difficulty` / `cefr_min`。
+- `sentence_bank(id, text, translation, source, source_id, cefr_min, exam_levels, difficulty, word_count)` — Tatoeba 分级句库；`exam_levels` 为逗号分隔的考纲标签（`cet4,cet6,ky,tem4,tem8,toefl,ielts,gre`），`difficulty` 为 1..=5 的推导难度层。建索引：`exam_levels` / `difficulty` / `cefr_min`。
 - `sentence_words(sentence_id, word_id, token_index, token_text, is_target, PRIMARY KEY(sentence_id, token_index))` — 句子↔词反向链接；`is_target = 1` 标记考纲词，供选词填空/听音辨词抽题。
 
 **可写进度库 `<appdata>/progress.db`**（首启建表 + 版本迁移）

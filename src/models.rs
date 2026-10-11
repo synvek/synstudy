@@ -67,7 +67,7 @@ pub struct Sentence {
     /// Minimum CEFR level across the sentence's content words (A1..C2), or
     /// empty when no CEFR-tagged word was matched.
     pub cefr_min: String,
-    /// Comma-separated exam tags: any of `cet4,cet6,tem4,tem8,toefl,gre`.
+    /// Comma-separated exam tags: any of `cet4,cet6,ky,tem4,tem8,toefl,ielts,gre`.
     pub exam_levels: String,
     /// 1..=5 tier derived from the hardest exam tag present.
     pub difficulty: i64,

@@ -16,6 +16,7 @@ pub fn category_visual(key: &str) -> (&'static str, &'static str, &'static str) 
         "tem4" => ("T4", "tone-indigo", "大学与专业"),
         "tem8" => ("T8", "tone-indigo", "大学与专业"),
         "toefl" => ("\u{1f310}", "tone-amber", "留学考试"),
+        "ielts" => ("雅", "tone-amber", "留学考试"),
         "gre" => ("G", "tone-amber", "留学考试"),
         _ => ("词", "tone-indigo", ""),
     }
@@ -34,6 +35,7 @@ pub fn category_code(key: &str) -> &'static str {
         "tem4" => "TEM-4",
         "tem8" => "TEM-8",
         "toefl" => "TOEFL",
+        "ielts" => "IELTS",
         "gre" => "GRE",
         _ => "词库",
     }

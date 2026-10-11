@@ -61,6 +61,7 @@ CATEGORIES = [
     {"key": "tem8",     "name": "英语专业八级", "source": "json",
      "globs": ["tem8.json"]},
     {"key": "toefl",    "name": "托福",         "source": "tag", "tag": "toefl"},
+    {"key": "ielts",    "name": "雅思",         "source": "tag", "tag": "ielts"},
     {"key": "gre",      "name": "GRE",         "source": "tag", "tag": "gre"},
 ]
 
@@ -552,8 +553,8 @@ def build_examples(conn, kaikki_path, max_per_word=MAX_EX_PER_WORD):
 # tier used when tagging a sentence with an overall score (higher == harder).
 # `zk`/`gk` are deliberately excluded: 中考/高考 vocab sits below CET-4 and
 # would drown out more advanced sentences.
-SENT_EXAM_TAGS = ["cet4", "cet6", "ky", "tem4", "tem8", "toefl", "gre"]
-SENT_EXAM_TIER = {"cet4": 1, "cet6": 2, "ky": 3, "tem4": 3, "tem8": 4, "toefl": 4, "gre": 5}
+SENT_EXAM_TAGS = ["cet4", "cet6", "ky", "tem4", "tem8", "toefl", "ielts", "gre"]
+SENT_EXAM_TIER = {"cet4": 1, "cet6": 2, "ky": 3, "tem4": 3, "tem8": 4, "toefl": 4, "ielts": 4, "gre": 5}
 
 # Sentence-level filters. Sentences outside this window are dropped: too short
 # to be interesting, too long to display cleanly on a card.
