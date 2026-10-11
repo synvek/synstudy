@@ -36,16 +36,18 @@ pub fn NavBar() -> Element {
 }
 
 /// The five primary destinations shown in the mobile bottom tab bar. The last
-/// one ("我的") is not a page — it opens `MoreSheet` for the secondary links.
-const TABS: [(Option<Page>, &str, &str); 5] = [
-    (Some(Page::Dictionary), "词典", "book"),
-    (Some(Page::Categories), "词库", "layers"),
-    (Some(Page::Study), "学习", "cap"),
-    (Some(Page::Wordbook), "生词本", "heart"),
-    (None, "我的", "user"),
+/// one is the "我的" hub (`Page::Mine`), a card-list page that gathers the
+/// secondary links (replacing the old popup menu).
+const TABS: [(Page, &str, &str); 5] = [
+    (Page::Dictionary, "词典", "book"),
+    (Page::Categories, "词库", "layers"),
+    (Page::Study, "学习", "cap"),
+    (Page::Wordbook, "生词本", "heart"),
+    (Page::Mine, "我的", "user"),
 ];
 
-/// Pages reachable only through the "我的" sheet on mobile.
+/// Secondary destinations grouped under the "我的" hub. Kept here so the tab
+/// bar can stay lit while any of them is open.
 const MORE_PAGES: [(Page, &str); 5] = [
     (Page::Review, "背诵"),
     (Page::Quiz, "测验"),
@@ -56,32 +58,30 @@ const MORE_PAGES: [(Page, &str); 5] = [
 
 /// Fixed bottom tab bar shown on narrow viewports (see the mobile media query).
 #[component]
-pub fn MobileTabBar(on_more: EventHandler<()>) -> Element {
+pub fn MobileTabBar() -> Element {
     let mut page: Signal<Page> = use_context();
     let current = page();
-    // "我的" lights up while any secondary page is open.
-    let more_active = MORE_PAGES.iter().any(|(p, _)| *p == current);
+    // "我的" lights up while it or any of its secondary pages is open.
+    let mine_active = MORE_PAGES.iter().any(|(p, _)| *p == current);
 
     rsx! {
         div { class: "mobile-tabbar",
             nav { class: "mobile-tabbar-bar",
-                for (i, (target, label, icon)) in TABS.iter().enumerate() {
+                for (i, (tab, label, icon)) in TABS.iter().enumerate() {
                     {
-                        let active = match target {
-                            Some(p) => current == *p,
-                            None => more_active,
+                        let active = if *tab == Page::Mine {
+                            current == Page::Mine || mine_active
+                        } else {
+                            current == *tab
                         };
                         let icon = icon.to_string();
                         let label = label.to_string();
-                        let target = *target;
+                        let tab = *tab;
                         rsx! {
                             button {
                                 key: "{i}",
                                 class: if active { "tab-item active" } else { "tab-item" },
-                                onclick: move |_| match target {
-                                    Some(p) => page.set(p),
-                                    None => on_more.call(()),
-                                },
+                                onclick: move |_| page.set(tab),
                                 TabIcon { name: icon.clone(), active }
                                 span { "{label}" }
                             }
@@ -90,46 +90,6 @@ pub fn MobileTabBar(on_more: EventHandler<()>) -> Element {
                 }
             }
         }
-    }
-}
-
-/// Bottom sheet listing the secondary destinations behind the "我的" tab.
-#[component]
-pub fn MoreSheet(on_close: EventHandler<()>) -> Element {
-    let mut page: Signal<Page> = use_context();
-
-    rsx! {
-        div { class: "sheet-backdrop", onclick: move |_| on_close.call(()),
-            div {
-                class: "sheet",
-                // Swallow clicks so tapping the panel does not dismiss it.
-                onclick: move |evt| evt.stop_propagation(),
-                div { class: "sheet-title", "更多" }
-                for (p, label) in MORE_PAGES.iter().copied() {
-                    button {
-                        key: "{p:?}",
-                        class: "sheet-item",
-                        onclick: move |_| {
-                            page.set(p);
-                            on_close.call(());
-                        },
-                        span { class: "sheet-ico", "{sheet_icon(p)}" }
-                        span { "{label}" }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// A glyph for each secondary destination in the sheet.
-fn sheet_icon(p: Page) -> &'static str {
-    match p {
-        Page::Review => "\u{1f501}",
-        Page::Quiz => "\u{270f}\u{fe0f}",
-        Page::Roots => "\u{1f331}",
-        Page::Stats => "\u{1f4ca}",
-        _ => "\u{2699}\u{fe0f}",
     }
 }
 

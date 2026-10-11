@@ -1,5 +1,6 @@
 pub mod categories;
 pub mod dictionary;
+pub mod mine;
 pub mod quiz;
 pub mod review;
 pub mod roots;

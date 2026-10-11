@@ -14,6 +14,8 @@ pub enum Page {
     Roots,
     Stats,
     Settings,
+    /// Mobile-only "我的" hub: a card list of the secondary destinations.
+    Mine,
 }
 
 impl Page {
@@ -28,6 +30,7 @@ impl Page {
             Page::Roots => "词根",
             Page::Stats => "统计",
             Page::Settings => "设置",
+            Page::Mine => "我的",
         }
     }
 
