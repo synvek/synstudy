@@ -28,7 +28,7 @@
 
 | 组件 | 说明 |
 | --- | --- |
-| [Dioxus](https://dioxuslabs.com/) `0.7` | 声明式跨平台 UI（`desktop` feature） |
+| [Dioxus](https://dioxuslabs.com/) `0.8.0-alpha.1` | 声明式跨平台 UI（desktop / iOS / Android；0.8 线引入 tao 0.35 以支持 iOS 27 强制的 UIScene 生命周期，见「打包发布」末尾说明） |
 | [rusqlite](https://crates.io/crates/rusqlite) `0.32` (`bundled`) | 静态编译 SQLite，跨平台免系统依赖 |
 | [serde](https://crates.io/crates/serde) / serde_json | 源数据解析与本地配置序列化 |
 | [directories](https://crates.io/crates/directories) | 定位可写的用户数据目录（进度库） |
@@ -57,7 +57,10 @@ synstudy/
 │   ├── fetch_data.sh         # 一键下载全部源数据（遵循 http(s)_proxy）
 │   ├── gen_sample_data.py    # 生成样例源数据（完全离线时的回退方案）
 │   ├── gen_notices.py        # 从 license/README.md 生成 THIRD-PARTY-NOTICES.txt
-│   └── build_dict_db.py      # 数据管线：CSV + JSON -> assets/synstudy.db（构建末尾自动生成声明）
+│   ├── build_dict_db.py      # 数据管线：CSV + JSON -> assets/synstudy.db（构建末尾自动生成声明）
+│   ├── package_ios.sh        # iOS 模拟器打包：构建 + 注入词典库 +（可选）simctl 安装启动
+│   ├── package_android.sh    # Android 打包：构建 + 注入 assets/ + noCompress 补丁 + gradlew 出 APK
+│   └── deploy_ios_device.sh  # iOS 真机部署：签名前注入词典 + codesign + devicectl 安装
 └── src/
     ├── main.rs               # dioxus::launch(App)
     ├── app.rs                # 根组件 + 导航壳 + 全局 Context Provider
@@ -80,7 +83,7 @@ synstudy/
 
 - Rust 1.80+（`rustup` 安装）
 - Python 3.8+（用于数据构建脚本）
-- 可选：[`dx` CLI](https://dioxuslabs.com/learn/0.7/getting_started)（`cargo install dioxus-cli`）用于打包
+- 可选：[`dx` CLI](https://dioxuslabs.com/learn/0.8/getting_started)（`cargo install dioxus-cli --version 0.8.0-alpha.1 --locked`）用于移动端打包与安装包生成，**须与 Cargo 里的 dioxus 同为 0.8 线**
 
 ### 1. 准备词典数据
 
@@ -175,16 +178,66 @@ dx serve --platform desktop   # 开发热重载
 
 > 词典库查找顺序：环境变量 `SYNSTUDY_DICT_DB` → 可执行文件同目录 → `./assets/synstudy.db` → `./synstudy.db`。
 
+移动端调试：先 `open -a Simulator`（dx 会复用已启动设备；无已启动设备时它挑最近用过的那台），再：
+
+```bash
+dx serve --platform ios      # 热重载看 UI（重建后词典库会被冲掉，见下）
+bash scripts/package_ios.sh --no-build   # 向最近一次构建的 .app 补注词典库并重装
+```
+
 ### 4. 打包发布
+
+#### 桌面（macOS / Windows / Linux）
 
 ```bash
 dx build --release          # 编译 release 二进制
 dx bundle --release         # 生成平台安装包（.app / .msi / .deb 等）
 ```
 
+桌面端 `dx bundle` 会自动把 `assets/`（词典库 + 第三方声明）作为 `[bundle] resources` 打进安装包，无需额外步骤。
+
+#### iOS 模拟器
+
+```bash
+bash scripts/package_ios.sh                 # debug 构建 + 注入词典库
+bash scripts/package_ios.sh --release       # release 构建
+bash scripts/package_ios.sh --install       # 打包后安装并启动到已 booted 的模拟器
+bash scripts/package_ios.sh --no-build      # 跳过构建，仅向已存在的 .app 注入
+```
+
+> 为什么需要脚本：`dx build --platform ios` **不会**打包 `[bundle] resources`（只有桌面端会），235MB 词典库必须在构建后拷入 `.app` 根目录（即 `Bundle.main.resourceURL`，运行时 `src/platform/ios.rs` 的查找位置）。脚本同时完成该注入与 `simctl` 安装。模拟器包免签名，注入即生效。
+
+#### iOS 真机
+
+```bash
+bash scripts/deploy_ios_device.sh --profile /path/to/dev.mobileprovision
+```
+
+流程：`dx build --platform ios --device` → **签名前**注入词典库（改动已签名的 `.app` 会使签名失效）→ 从描述文件提取 entitlements 并 `codesign --force --deep` 重签 → `xcrun devicectl` 安装并启动。
+
+- 签名身份默认取钥匙串里第一枚 `Apple Development` 证书，可用 `--identity "..."` 覆盖；
+- provisioning profile 必须**覆盖目标设备 UDID + `com.synstudy.synstudy`**：免费个人团队用 Xcode（Signing & Capabilities → 选 Team）生成后，从 `~/Library/Developer/Xcode/UserData/Provisioning Profiles/` 取 `.mobileprovision` 传入；
+- 设备默认自动探测第一台已配对真机（按 `reality != "simulated"` 排除模拟器），也可 `--device <UDID|名称>` 指定；
+- 辅助选项：`--skip-sign` 只构建 + 注入不签名；`--dry-run` 打印执行计划。
+
+#### Android
+
+```bash
+bash scripts/package_android.sh              # debug APK（debug keystore 自动签名，可直接安装）
+bash scripts/package_android.sh --install    # 出包后 adb install -r 到已连接设备
+bash scripts/package_android.sh --release    # release（需在 build.gradle.kts 自行配置 signingConfig）
+bash scripts/package_android.sh --no-build   # 跳过 dx build，仅注入 + gradlew 打包
+```
+
+> 为什么需要脚本：`dx build --platform android` 每次都会**重新生成整个 Gradle 工程**，手动改过的 assets 与构建配置会被覆盖，且与 iOS 一样不打包词典库。脚本在构建后：把 `synstudy.db` 重注入 `app/src/main/assets/`；幂等地给 `app/build.gradle.kts` 补上 `androidResources { noCompress += "db" }`（运行时 `AAssetManager` 需按长度流式拷贝词典到 filesDir，必须未压缩存储）；最后 `./gradlew assemble<Profile>` 出 APK（`dx build` 内部那次 gradle 发生在注入**之前**，产物不含词典，必须重跑）。
+
+前置条件：Android SDK（`ANDROID_HOME`）+ NDK、JDK、Rust 目标（`rustup target add aarch64-linux-android`）。
+
+> **iOS 27 注意**：Apple（TN3187）自 iOS 27 起对未采用 UIScene 生命周期的 App 启动即强制崩溃（SIGTRAP）。dioxus 0.7 / tao 0.34 未采用 scene，在 iOS 27 设备/模拟器上装后即崩；项目因此整体升级到 dioxus 0.8.0-alpha.1（tao 0.35），并在 `Dioxus.toml` 注入 `[ios.plist] UIApplicationSceneManifest = { UIApplicationSupportsMultipleScenes = true }`（tao 依此把窗口挂到 `UIWindowScene`，缺失则黑屏）。**Cargo 依赖与 dx CLI 必须保持在 0.8 线**，回退需连同两者一起降。
+
 > 安装包合规：`scripts/build_dict_db.py` 在每次构建末尾会自动从 `license/README.md`
 > 生成 `assets/THIRD-PARTY-NOTICES.txt`（仅列出本次构建实际入库的数据源），并把声明内容的
-> sha256 前 12 位写入数据库 `meta.notices_version`，随 `assets/` 目录一并被 `dx bundle` 打进安装包，
+> sha256 前 12 位写入数据库 `meta.notices_version`，随 `assets/` 目录一并被 `dx bundle` 打进安装包（移动端则由上述三个脚本随词典库一并注入），
 > 确保「包内声明」与「随包数据」永远一致。可单独重生成：`python3 scripts/gen_notices.py`。
 
 ---

@@ -37,6 +37,18 @@ publisher = "synstudy"
 # for audio output; the UI itself works down to 15.
 deployment_target = "15.0"
 
+# iOS 26+ / 27 hard-asserts (SIGTRAP) at launch if the app has not adopted the
+# UIKit scene-based lifecycle (TN3187). dioxus 0.7 pins tao 0.34 which does not;
+# we moved to the 0.8 pre-release line so tao 0.35 implements
+# `configurationForConnectingSceneSession` (returns a UISceneConfiguration wired
+# to TaoSceneDelegate). tao then attaches each window to its UIWindowScene only
+# when it reads UIApplicationSupportsMultipleScenes == YES here, so the manifest
+# must be present and true, otherwise the window is created off-scene and shows
+# a black screen on iOS 27. dx's own Info.plist template omits this key, so we
+# inject it via [ios.plist] (nested dict supported by the CLI plist serializer).
+[ios.plist]
+UIApplicationSceneManifest = { UIApplicationSupportsMultipleScenes = true }
+
 [android]
 identifier = "com.synstudy.synstudy"
 publisher = "synstudy"
