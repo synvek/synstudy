@@ -43,6 +43,9 @@ pub fn Roots() -> Element {
     let sel = sel_word().clone();
     // Copyable selected-word id for highlighting chips without moving `sel`.
     let sel_word_id = sel.as_ref().map(|w| w.id);
+    // On narrow screens the layout pushes to the detail pane once a root is
+    // picked; `has-detail` drives that CSS master-detail toggle.
+    let has_detail = cur_root.is_some();
 
     rsx! {
         div { class: "page roots",
@@ -65,11 +68,17 @@ pub fn Roots() -> Element {
                         class: "search-input",
                         placeholder: "筛选词根或含义，如 hom / without …",
                         value: "{filter}",
-                        oninput: move |e| filter.set(e.value()),
+                        oninput: move |e| {
+                            filter.set(e.value());
+                            // Typing in the filter should bring back the list on
+                            // narrow screens, so drop any pushed detail.
+                            sel_root.set(None);
+                            sel_word.set(None);
+                        },
                     }
                 }
 
-                div { class: "dict-body",
+                div { class: if has_detail { "dict-body has-detail" } else { "dict-body" },
                     div { class: "dict-results",
                         if list.is_empty() {
                             p { class: "muted pad", "无匹配词根" }
@@ -93,6 +102,16 @@ pub fn Roots() -> Element {
                     }
 
                     div { class: "dict-detail",
+                        if !has_detail || sel.is_none() {
+                            button {
+                                class: "dict-back",
+                                onclick: move |_| {
+                                    sel_root.set(None);
+                                    sel_word.set(None);
+                                },
+                                "\u{2190} 返回词根列表"
+                            }
+                        }
                         match cur_root {
                             Some(r) => rsx! {
                                 if let Some(sw) = sel {
