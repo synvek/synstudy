@@ -182,6 +182,39 @@ body {
 .mine-card-desc { font-size: 12px; color: var(--muted); }
 .mine-card-chevron { color: var(--muted); font-size: 24px; line-height: 1; flex-shrink: 0; }
 
+/* "关于" panel (About / License / Privacy) opened from Settings. */
+.page.about { max-width: 720px; }
+.about-entry .setting-row label { font-weight: 500; }
+.about-tabs { margin-bottom: 18px; }
+.about-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.about-card h2 { margin: 0; font-size: 20px; }
+.about-card h3 { margin: 8px 0 0; font-size: 15px; }
+.about-card p { margin: 0; line-height: 1.65; }
+.about-app { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+.about-logo {
+  width: 56px; height: 56px; border-radius: 14px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; font-weight: 700; color: #fff; background: var(--primary);
+}
+.about-title { display: flex; flex-direction: column; gap: 2px; }
+.about-kv { gap: 8px; }
+.about-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.about-list li { line-height: 1.6; }
+.about-srcs { display: flex; flex-direction: column; margin: 2px 0; }
+.about-src {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 0; border-bottom: 1px solid var(--border);
+}
+.about-src:last-child { border-bottom: none; }
+.about-src-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.about-src-name { font-weight: 600; }
+.about-src-usage { font-size: 12px; }
+.about-src-lic { color: var(--muted); font-size: 13px; text-align: right; flex-shrink: 0; }
+
 /* ---------------- Layout ---------------- */
 .content { flex: 1; overflow-y: auto; padding: 28px 40px 40px; }
 .page { max-width: 1280px; margin: 0 auto; }
