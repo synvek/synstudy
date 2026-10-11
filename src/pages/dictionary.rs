@@ -1,13 +1,16 @@
 use dioxus::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::components::word_detail::WordDetail;
 use crate::components::zh_detail::ZhDetail;
 use crate::db::dict_repo::DictRepo;
+use crate::db::progress_repo::ProgressRepo;
 use crate::models::{Word, ZhEntry};
 use crate::state::first_line;
 
-/// Lookup direction of the dictionary page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Lookup direction of the dictionary page. Serialized into the persisted
+/// search history, so variants stay name-stable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 enum SearchMode {
     /// English headword -> Chinese meaning (ECDICT).
     #[default]
@@ -46,6 +49,58 @@ impl SearchMode {
     }
 }
 
+/// One persisted dictionary lookup: which direction and what was looked up.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct HistoryItem {
+    mode: SearchMode,
+    text: String,
+}
+
+/// KV key under which the search history is stored in the progress database.
+const DICT_HISTORY_KEY: &str = "dict_history";
+/// Most recent lookups kept per direction; oldest entries fall off the tail.
+const HISTORY_LIMIT: usize = 20;
+
+/// Handle for recording lookups into the history signal. A `Copy` struct (a
+/// bare `FnMut` closure can't be moved into several event handlers).
+#[derive(Clone, Copy)]
+struct HistoryAdder {
+    history: Signal<Vec<HistoryItem>>,
+}
+
+impl HistoryAdder {
+    /// Newest first, deduped by (mode, text); each direction capped at 20.
+    fn add(self, m: SearchMode, text: String) {
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let key = (m, text.clone());
+        let cur = self.history.read().clone();
+        let mut next = vec![HistoryItem {
+            mode: m,
+            text: text.clone(),
+        }];
+        let mut hist = self.history;
+        let mut kept = 0usize;
+        for it in cur {
+            let dup = it.mode == key.0 && it.text == key.1;
+            if it.mode == m {
+                if !dup {
+                    if kept >= HISTORY_LIMIT {
+                        continue;
+                    }
+                    kept += 1;
+                    next.push(it);
+                }
+            } else {
+                next.push(it);
+            }
+        }
+        hist.set(next);
+    }
+}
+
 /// Right-hand caption of the results panel header.
 fn result_status(empty_query: bool, no_hits: bool) -> &'static str {
     if empty_query {
@@ -60,10 +115,34 @@ fn result_status(empty_query: bool, no_hits: bool) -> &'static str {
 #[component]
 pub fn Dictionary() -> Element {
     let dict: DictRepo = use_context();
+    let progress: ProgressRepo = use_context();
     let mut query = use_signal(String::new);
     let mut mode = use_signal(SearchMode::default);
     let mut selected = use_signal(|| Option::<Word>::None);
     let mut selected_zh = use_signal(|| Option::<ZhEntry>::None);
+
+    // Search history, restored once from the progress KV store and written
+    // back whenever it changes. Reads only subscribe to the signal itself.
+    let history = {
+        let progress = progress.clone();
+        use_signal(move || {
+            progress
+                .get_setting(DICT_HISTORY_KEY)
+                .and_then(|v| serde_json::from_str::<Vec<HistoryItem>>(&v).ok())
+                .unwrap_or_default()
+        })
+    };
+    {
+        let progress = progress.clone();
+        use_effect(move || {
+            let items = history.read().clone();
+            match serde_json::to_string(&items) {
+                Ok(json) => progress.set_setting(DICT_HISTORY_KEY, &json),
+                Err(_) => progress.set_setting(DICT_HISTORY_KEY, "[]"),
+            }
+        });
+    }
+    let add_history = HistoryAdder { history };
 
     // Each direction has its own memo; the inactive one short-circuits to empty.
     let dict_en = dict.clone();
@@ -96,6 +175,14 @@ pub fn Dictionary() -> Element {
     // picked; `has-detail` drives that CSS master-detail toggle.
     let has_detail = sel.is_some() || sel_zh.is_some();
     let (word_total, zh_total) = counts();
+    // Current-direction lookups shown as quick-pick chips while the query box
+    // is empty (oldest entries beyond the cap are dropped on write).
+    let hist_list: Vec<HistoryItem> = history
+        .read()
+        .iter()
+        .filter(|it| it.mode == cur_mode)
+        .cloned()
+        .collect();
     let count_label = if cur_mode == SearchMode::Zh2En {
         format!("共收录 {} 汉英词条", zh_total)
     } else {
@@ -129,6 +216,7 @@ pub fn Dictionary() -> Element {
                     (_, None) => if delta > 0 { 0 } else { en.len() - 1 },
                 };
                 if let Some(w) = en.get(next) {
+                    add_history.add(mode, w.word.clone());
                     selected.set(Some(w.clone()));
                 }
             } else {
@@ -145,6 +233,7 @@ pub fn Dictionary() -> Element {
                     (_, None) => if delta > 0 { 0 } else { zh.len() - 1 },
                 };
                 if let Some(e) = zh.get(next) {
+                    add_history.add(mode, e.simplified.clone());
                     selected_zh.set(Some(e.clone()));
                 }
             }
@@ -158,9 +247,11 @@ pub fn Dictionary() -> Element {
         move |_| {
             if cur_mode == SearchMode::En2Zh {
                 if let Some(w) = en.first() {
+                    add_history.add(cur_mode, w.word.clone());
                     selected.set(Some(w.clone()));
                 }
             } else if let Some(e) = zh.first() {
+                add_history.add(cur_mode, e.simplified.clone());
                 selected_zh.set(Some(e.clone()));
             }
         }
@@ -242,7 +333,30 @@ pub fn Dictionary() -> Element {
                             span { class: "muted", "{result_status(query().trim().is_empty(), zh_list.is_empty())}" }
                         }
                         if query().trim().is_empty() {
-                            p { class: "muted pad", "{cur_mode.empty_hint()}" }
+                            if hist_list.is_empty() {
+                                p { class: "muted pad", "{cur_mode.empty_hint()}" }
+                            } else {
+                                div { class: "hist",
+                                    div { class: "hist-title", "最近查询" }
+                                    div { class: "wd-links",
+                                        for h in hist_list.iter() {
+                                            button {
+                                                key: "{h.text}",
+                                                class: "chip chip-link hist-chip",
+                                                onclick: {
+                                                    let t = h.text.clone();
+                                                    move |_| {
+                                                        query.set(t.clone());
+                                                        selected.set(None);
+                                                        selected_zh.set(None);
+                                                    }
+                                                },
+                                                "{h.text}"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         } else if zh_list.is_empty() {
                             p { class: "muted pad", "未找到匹配的词条" }
                         } else {
@@ -252,7 +366,10 @@ pub fn Dictionary() -> Element {
                                     class: if selected_zh_id == Some(e.id) { "result active" } else { "result" },
                                     onclick: {
                                         let e = e.clone();
-                                        move |_| selected_zh.set(Some(e.clone()))
+                                        move |_| {
+                                            add_history.add(SearchMode::Zh2En, e.simplified.clone());
+                                            selected_zh.set(Some(e.clone()))
+                                        }
                                     },
                                     span { class: "result-word", "{e.simplified}" }
                                     span { class: "result-pinyin", "[{e.pinyin}]" }
@@ -275,6 +392,10 @@ pub fn Dictionary() -> Element {
                                         let dict_pick = dict.clone();
                                         move |head: String| {
                                             let exact = dict_pick.get_by_word(&head);
+                                            add_history.add(
+                                                SearchMode::En2Zh,
+                                                exact.as_ref().map(|w| w.word.clone()).unwrap_or_else(|| head.clone()),
+                                            );
                                             query.set(exact.as_ref().map(|w| w.word.clone()).unwrap_or(head));
                                             selected.set(exact);
                                             selected_zh.set(None);
@@ -308,7 +429,30 @@ pub fn Dictionary() -> Element {
                             span { class: "muted", "{result_status(query().trim().is_empty(), en_list.is_empty())}" }
                         }
                         if query().trim().is_empty() {
-                            p { class: "muted pad", "{cur_mode.empty_hint()}" }
+                            if hist_list.is_empty() {
+                                p { class: "muted pad", "{cur_mode.empty_hint()}" }
+                            } else {
+                                div { class: "hist",
+                                    div { class: "hist-title", "最近查询" }
+                                    div { class: "wd-links",
+                                        for h in hist_list.iter() {
+                                            button {
+                                                key: "{h.text}",
+                                                class: "chip chip-link hist-chip",
+                                                onclick: {
+                                                    let t = h.text.clone();
+                                                    move |_| {
+                                                        query.set(t.clone());
+                                                        selected.set(None);
+                                                        selected_zh.set(None);
+                                                    }
+                                                },
+                                                "{h.text}"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         } else if en_list.is_empty() {
                             p { class: "muted pad", "未找到匹配的单词" }
                         } else {
@@ -318,7 +462,10 @@ pub fn Dictionary() -> Element {
                                     class: if selected_id == Some(w.id) { "result active" } else { "result" },
                                     onclick: {
                                         let w = w.clone();
-                                        move |_| selected.set(Some(w.clone()))
+                                        move |_| {
+                                            add_history.add(SearchMode::En2Zh, w.word.clone());
+                                            selected.set(Some(w.clone()))
+                                        }
                                     },
                                     span { class: "result-word", "{w.word}" }
                                     span { class: "result-trans", "{first_line(&w.translation)}" }

@@ -359,6 +359,10 @@ h1, h2, h3, h4 { color: var(--text); }
 .result.active .result-word { color: var(--primary); }
 .result-word { font-weight: 600; font-size: 15px; }
 .result-trans { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Search history chips shown while the query box is empty. */
+.hist { padding: 14px; }
+.hist-title { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
+.hist-chip { font-size: 13px; }
 .dict-detail {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 26px 30px; min-height: 200px;
