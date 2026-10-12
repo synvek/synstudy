@@ -50,6 +50,15 @@ pub struct Example {
     pub source: String,
 }
 
+/// A synonym / antonym relation for a word (Wiktionary/kaikki, `word_relations`
+/// table). `kind` is `"syn"` or `"ant"`; `target` is a lowercase headword that
+/// exists in `words`, so the UI can resolve it for a click-through lookup.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WordRelation {
+    pub kind: String,
+    pub target: String,
+}
+
 /// A graded sentence from the open-corpus sentence bank (Tatoeba / Wiktionary).
 ///
 /// Each row is tagged with the exam levels whose syllabus vocabulary appears in

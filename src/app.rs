@@ -4,7 +4,7 @@ use crate::components::nav_bar::{MobileTabBar, NavBar};
 use crate::db::{self, dict_repo::DictRepo, progress_repo::ProgressRepo};
 use crate::models::Category;
 use crate::pages;
-use crate::state::{Page, Settings, LAST_CATEGORY_KEY, SETTINGS_KEY};
+use crate::state::{DictLookup, Page, Settings, LAST_CATEGORY_KEY, SETTINGS_KEY};
 
 const CSS: &str = include_str!("../assets/main.css");
 
@@ -34,6 +34,8 @@ pub fn App() -> Element {
     });
     // Currently selected word root (shared so WordDetail can deep-link to it).
     use_context_provider(|| Signal::new(Option::<String>::None));
+    // Cross-page dictionary lookup channel (synonym chips -> Dictionary page).
+    use_context_provider(|| DictLookup(Signal::new(Option::<String>::None)));
     use_context_provider(|| {
         let repo = ProgressRepo::new(db::progress_db_path());
         let settings = repo

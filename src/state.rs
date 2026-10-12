@@ -1,3 +1,4 @@
+use dioxus::prelude::Signal;
 use serde::{Deserialize, Serialize};
 
 use crate::srs::Scheduler;
@@ -64,6 +65,14 @@ impl Page {
         ]
     }
 }
+
+/// A pending dictionary lookup requested from another view — e.g. clicking a
+/// synonym chip in `WordDetail` sends the target word to the Dictionary page,
+/// which consumes and clears it. A wrapper newtype (not a bare
+/// `Signal<Option<String>>`) so it can't collide with the root-selection
+/// context, which has the same inner type.
+#[derive(Clone, Copy)]
+pub struct DictLookup(pub Signal<Option<String>>);
 
 /// UI color scheme preference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

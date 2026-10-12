@@ -5,7 +5,7 @@
 Only the data sources that actually landed in the built database are declared:
 presence is decided by the `meta` table that build_dict_db.py writes
 (word_total / zh_total / example_total / sentence_total / sentence_trans_total /
-cefr_tagged / root_total). The sha256 prefix of the rendered body is returned
+cefr_tagged / root_total / wordnet_total). The sha256 prefix of the rendered body is returned
 as `notices_version` and stored back into the same meta table, so a released
 bundle can always prove its notices match the data it ships:
 
@@ -39,6 +39,7 @@ SOURCES = [
     ("ECDICT",     ["ecdict"],                  ["word_total", "root_total"]),
     ("CC-CEDICT",  ["cc-cedict"],               ["zh_total"]),
     ("Wiktionary", ["wiktionary"],              ["example_total"]),
+    ("WordNet",    ["wordnet"],                 ["wordnet_total"]),
     ("Tatoeba",    ["tatoeba"],                 ["sentence_total"]),
     ("OpenCC",     ["opencc"],                  ["sentence_trans_total"]),
     ("CEFR-J",     ["cefr-j"],                  ["cefr_tagged"]),

@@ -15,6 +15,7 @@
 #   * Wiktionary/kaikki.org ( kaikki.org-dictionary-English.jsonl, CC BY-SA 4.0) -> data/kaikki.en.jsonl  (例句)
 #   * Tatoeba           (tatoeba.org, CC-BY 2.0 FR)  -> data/tatoeba/*.tsv.bz2  (分级句库)
 #   * OpenCC            (BYVoid/OpenCC, Apache-2.0)  -> data/opencc/TS*.txt  (繁→简转换表)
+#   * WordNet 3.1       (Princeton, BSD-style licence) -> data/wordnet/wordnet31/  (近义/反义补充)
 #
 # NOTE: 小学/专四/专八 word lists are NOT fetched here. The previous sources
 # (qwerty-learner, GPL-3.0; kajweb/dict, no licence) were removed for licence
@@ -44,6 +45,10 @@ KAIKKI="https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.json
 TATOEBA_EN="https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2"
 TATOEBA_CMN="https://downloads.tatoeba.org/exports/per_language/cmn/cmn_sentences.tsv.bz2"
 TATOEBA_LINKS="https://downloads.tatoeba.org/exports/links.tar.bz2"
+# WordNet 3.1 dict files. Princeton's own wn3.1.dict.tar.gz URLs are dead;
+# NLTK's wordnet31 corpus package ships the identical data.*/index.* files and
+# is served through jsdelivr (reachable where raw.githubusercontent is slow).
+WORDNET_ZIP="https://cdn.jsdelivr.net/gh/nltk/nltk_data@gh-pages/packages/corpora/wordnet31.zip"
 # OpenCC t2s dictionaries (the S->T named files are the opposite direction;
 # t2s uses TS*). jsdelivr mirrors the GitHub repo and is reachable where
 # raw.githubusercontent.com is not.
@@ -61,11 +66,11 @@ fetch() {  # fetch <url> <out>
   curl -sS -L -f --retry 3 --retry-delay 2 -o "$out" "$url"
 }
 
-echo "[1/5] ECDICT master dictionary (MIT)"
+echo "[1/6] ECDICT master dictionary (MIT)"
 fetch "$RAW_ECDICT/ecdict.csv"   "$DATA/ecdict.csv"
 fetch "$RAW_ECDICT/wordroot.txt" "$DATA/wordroot.txt"
 
-echo "[2/5] CC-CEDICT Chinese-English dictionary (CC-BY-SA 4.0)"
+echo "[2/6] CC-CEDICT Chinese-English dictionary (CC-BY-SA 4.0)"
 if [[ -s "$DATA/cedict.txt" ]]; then
   echo "  = exists: cedict.txt"
 else
@@ -74,12 +79,12 @@ else
   gunzip -f "$DATA/cedict.txt.gz"
 fi
 
-echo "[3/5] CEFR-J vocabulary profile (A1-C2 levels; requires citation)"
+echo "[3/6] CEFR-J vocabulary profile (A1-C2 levels; requires citation)"
 fetch "$RAW_CEFRJ/cefrj-vocabulary-profile-1.5.csv"         "$CEFRJ/cefrj-vocabulary-profile-1.5.csv"
 fetch "$RAW_CEFRJ/octanove-vocabulary-profile-c1c2-1.0.csv" "$CEFRJ/octanove-vocabulary-profile-c1c2-1.0.csv"
 fetch "$RAW_CEFRJ/README.md"                               "$CEFRJ/olp-en-cefrj-README.md"
 
-echo "[4/5] Wiktionary example sentences (kaikki.org, CC BY-SA 4.0; ~3.1GB)"
+echo "[4/6] Wiktionary example sentences (kaikki.org, CC BY-SA 4.0; ~3.1GB)"
 if [[ -s "$DATA/kaikki.en.jsonl" ]]; then
   echo "  = exists: kaikki.en.jsonl"
 else
@@ -87,7 +92,7 @@ else
   curl -sS -L -f --retry 3 --retry-delay 2 -C - -o "$DATA/kaikki.en.jsonl" "$KAIKKI"
 fi
 
-echo "[5/5] Tatoeba sentence bank (CC-BY 2.0 FR; graded example sentences)"
+echo "[5/6] Tatoeba sentence bank (CC-BY 2.0 FR; graded example sentences)"
 fetch "$TATOEBA_EN"  "$TATOEBA/en_sentences.tsv.bz2"
 fetch "$TATOEBA_CMN" "$TATOEBA/cmn_sentences.tsv.bz2"
 # Tatoeba/cmn translations are mostly Traditional; the builder converts them
@@ -111,6 +116,18 @@ else
       rm -f "$TATOEBA/links.tar.bz2"
     fi
   fi
+fi
+
+echo "[6/6] WordNet 3.1 dict files (Princeton licence; synonym/antonym supplement)"
+WN="$ROOT/data/wordnet"
+if [[ -s "$WN/wordnet31/data.adj" && -s "$WN/wordnet31/data.noun" ]]; then
+  echo "  = exists: wordnet31/"
+else
+  echo "  -> wordnet31.zip (~11MB)"
+  mkdir -p "$WN"
+  fetch "$WORDNET_ZIP" "$WN/wordnet31.zip"
+  unzip -q -t "$WN/wordnet31.zip"   # abort before poisoning the dir on a bad zip
+  unzip -qo "$WN/wordnet31.zip" -d "$WN"
 fi
 
 echo

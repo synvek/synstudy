@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use rusqlite::{Connection, OpenFlags, Row};
 
-use crate::models::{Category, Example, Sentence, SentenceWord, Word, WordRoot, ZhEntry};
+use crate::models::{Category, Example, Sentence, SentenceWord, Word, WordRelation, WordRoot, ZhEntry};
 
 const WORD_COLS: &str = "w.id, w.word, w.phonetic, w.translation, w.definition, \
                          w.pos, w.tag, w.bnc, w.frq, w.exchange, w.cefr";
@@ -360,6 +360,33 @@ impl DictRepo {
                 Ok(Example {
                     text: r.get(0)?,
                     source: r.get(1)?,
+                })
+            })
+            .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
+        rows.unwrap_or_default()
+    }
+
+    /// Synonyms / antonyms for a word (Wiktionary, `word_relations` table),
+    /// most common ones first. Returns empty when the table is absent (older
+    /// databases) or has no rows.
+    pub fn relations(&self, word_id: i64, limit: i64) -> Vec<WordRelation> {
+        let conn = match self.conn() {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let sql = "SELECT r.rel_kind, r.target FROM word_relations r \
+                   WHERE r.word_id = ?1 \
+                   ORDER BY CASE r.rel_kind WHEN 'syn' THEN 0 ELSE 1 END, \
+                            r.order_index LIMIT ?2";
+        let mut stmt = match conn.prepare(sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt
+            .query_map(rusqlite::params![word_id, limit], |r| {
+                Ok(WordRelation {
+                    kind: r.get(0)?,
+                    target: r.get(1)?,
                 })
             })
             .and_then(|m| m.collect::<rusqlite::Result<Vec<_>>>());
@@ -819,6 +846,65 @@ mod tests {
         }
         drop(conn);
         (DictRepo::new(path.clone()), path)
+    }
+
+    /// Build a throwaway DB holding `word_relations` (or, with `with_table ==
+    /// false`, a DB without it) to test the relation loader.
+    fn temp_rel_repo(with_table: bool) -> (DictRepo, PathBuf) {
+        static SEQ: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "synstudy_rel_test_{}_{}.db",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_file(&path);
+        let conn = Connection::open(&path).unwrap();
+        if with_table {
+            conn.execute_batch(
+                "CREATE TABLE word_relations (
+                    word_id INTEGER NOT NULL, rel_kind TEXT NOT NULL,
+                    target TEXT NOT NULL, source TEXT DEFAULT 'Wiktionary',
+                    order_index INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (word_id, rel_kind, target)
+                );",
+            )
+            .unwrap();
+            // Inserted out of order on purpose: the query must regroup by kind.
+            for (wid, kind, target, idx) in
+                [(1, "ant", "small", 0), (1, "syn", "huge", 1), (1, "syn", "large", 0)]
+            {
+                conn.execute(
+                    "INSERT INTO word_relations (word_id, rel_kind, target, order_index) \
+                     VALUES (?1,?2,?3,?4)",
+                    rusqlite::params![wid, kind, target, idx],
+                )
+                .unwrap();
+            }
+        } else {
+            conn.execute_batch("CREATE TABLE dummy (x);").unwrap();
+        }
+        drop(conn);
+        (DictRepo::new(path.clone()), path)
+    }
+
+    #[test]
+    fn relations_groups_syn_first_then_ant() {
+        let (repo, path) = temp_rel_repo(true);
+        let rels = repo.relations(1, 10);
+        assert_eq!(
+            rels.iter()
+                .map(|r| (r.kind.as_str(), r.target.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("syn", "large"), ("syn", "huge"), ("ant", "small")]
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn relations_empty_when_table_missing() {
+        let (repo, path) = temp_rel_repo(false);
+        assert!(repo.relations(1, 10).is_empty());
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

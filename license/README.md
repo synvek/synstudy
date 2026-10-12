@@ -7,7 +7,8 @@
 | --- | --- | --- | --- |
 | [ECDICT](https://github.com/skywind3000/ECDICT) | `words` 表：英汉释义、音标、词形变化、词频、考试标签 | MIT | [`ECDICT-LICENSE.txt`](./ECDICT-LICENSE.txt) |
 | [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cc-cedict) | `zh_entries` 表：汉英词典（中文主键 / 拼音 / 繁体 / 英文释义） | CC-BY-SA 4.0 | [`CC-CEDICT-LICENSE.txt`](./CC-CEDICT-LICENSE.txt) |
-| [Wiktionary / kaikki.org](https://kaikki.org/dictionary/English/) | `examples` 表：分级词库词汇的自然例句 | CC BY-SA 4.0 | [`Wiktionary-kaikki-LICENSE.txt`](./Wiktionary-kaikki-LICENSE.txt) |
+| [Wiktionary / kaikki.org](https://kaikki.org/dictionary/English/) | `examples` 表：分级词库词汇的自然例句；`word_relations` 表：近义词/反义词 | CC BY-SA 4.0 | [`Wiktionary-kaikki-LICENSE.txt`](./Wiktionary-kaikki-LICENSE.txt) |
+| [WordNet](https://wordnet.princeton.edu/) | `word_relations` 表：近义/反义词补充（synset 同集成员与 `!` 反义指针） | Princeton WordNet 许可（BSD 风格，可自由商用，保留声明即可） | [`WORDNET-LICENSE.txt`](./WORDNET-LICENSE.txt) |
 | [Tatoeba](https://tatoeba.org/) | `sentence_bank` / `sentence_words` 表：按考纲分级的例句（四/六/考研/专四/专八/托福/雅思/GRE） | CC-BY 2.0 FR | [`Tatoeba-LICENSE.txt`](./Tatoeba-LICENSE.txt) |
 | [OpenCC](https://github.com/BYVoid/OpenCC) | 繁→简转换表：仅用于构建阶段将 `sentence_bank` 中文译文转为简体 | Apache-2.0 | [`OpenCC-LICENSE.txt`](./OpenCC-LICENSE.txt) |
 | [CEFR-J](https://github.com/openlanguageprofiles/olp-en-cefrj) | `words.cefr` 列：A1–C2 难度等级标注 | 免费商用**须引用**（C1/C2 部分 CC BY-SA 4.0） | [`CEFR-J-NOTICE.txt`](./CEFR-J-NOTICE.txt) |
@@ -27,9 +28,16 @@ Copyright (c) 2025 Linwei。MIT 许可，允许自由使用、修改与再分发
 - ⚠️ SA 条款仅约束**数据**，本项目**源代码**不受其传染性影响，仍独立许可。
 
 ### Wiktionary / kaikki.org（CC BY-SA 4.0）
-`examples` 表的例句由 kaikki.org 从 Wiktionary 提取，属 CC BY-SA 4.0。
-- **署名（BY）**：词典详情面板例句处标注「例句来自 Wiktionary（CC BY-SA 4.0）」。
+`examples` 表的例句由 kaikki.org 从 Wiktionary 提取，属 CC BY-SA 4.0；`word_relations` 表中
+`source='Wiktionary'` 的近义/反义词同样出自该数据（senses 级 synonyms/antonyms 字段），适用相同的 BY/SA 义务。
+- **署名（BY）**：词典详情面板例句处标注「例句来自 Wiktionary（CC BY-SA 4.0）」，近义/反义词处标注来源。
 - **相同方式共享（SA）**：若对外分发含例句的 `assets/synstudy.db`，该演绎数据须以 CC BY-SA 4.0 共享；SA 仅约束**数据**，不影响本项目源码。
+
+### WordNet 3.1（Princeton license，BSD 风格）
+`word_relations` 表中 `source='WordNet'` 的行由构建脚本解析 WordNet 3.1 词典文件（dict 包，经 NLTK wordnet31 镜像获取）生成：synset 成员作为近义词，形容词 `!` 指针目标作为反义词。
+- 许可允许**自由使用、修改与再分发（含商用）**，只需在所有副本（含演绎数据）中保留 Princeton 版权与许可声明（见 `WORDNET-LICENSE.txt`）。
+- 声明体现：本文件与 THIRD-PARTY-NOTICES.txt 均列出 WordNet 条目；应用内近义/反义词处标注「来自 Wiktionary 与 WordNet」。
+- 与 CC 许可不同，WordNet 许可**无 SA 传染性**，仅要求保留声明。
 
 ### Tatoeba（CC-BY 2.0 FR）
 `sentence_bank` / `sentence_words` 表的分级例句来自 Tatoeba 众包语料库，以及其提供的跨语言链接（英文↔中文）。句子版权归各自贡献者，以 CC-BY 2.0 FR 发布。

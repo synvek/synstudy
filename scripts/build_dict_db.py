@@ -17,6 +17,8 @@ Inputs (place under data/):
   data/tatoeba/links.tsv.bz2          Tatoeba cross-language links (optional)
   data/opencc/TSCharacters.txt        OpenCC Traditional->Simplified char map
   data/opencc/TSPhrases.txt           OpenCC Traditional->Simplified phrase map
+  data/wordnet/wordnet31/data.*       Princeton WordNet 3.1 dict files (synonyms
+                             / antonyms supplement; via scripts/fetch_data.sh)
 
 Output:
   assets/synstudy.db         Bundled with the app, opened read-only at runtime.
@@ -30,6 +32,7 @@ small sample dataset for development.
 """
 import argparse
 import bz2
+import collections
 import csv
 import glob
 import os
@@ -121,6 +124,20 @@ CREATE TABLE examples (
     order_index INTEGER DEFAULT 0
 );
 CREATE INDEX idx_examples_word ON examples(word_id);
+
+-- Synonyms / antonyms extracted from Wiktionary (kaikki), one row per
+-- (word, kind, target). Kept to the graded category headwords like `examples`.
+-- `target` is normalized lowercase and always exists in `words` (validated at
+-- extraction time), so the runtime can resolve it to a clickable entry.
+CREATE TABLE word_relations (
+    word_id     INTEGER NOT NULL,
+    rel_kind    TEXT NOT NULL,       -- 'syn' synonyms | 'ant' antonyms
+    target      TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'Wiktionary',
+    order_index INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (word_id, rel_kind, target)
+);
+CREATE INDEX idx_wordrels_kind ON word_relations(word_id, rel_kind, order_index);
 
 CREATE TABLE word_roots (
     root_key TEXT PRIMARY KEY,
@@ -484,21 +501,65 @@ def apply_cefr(conn, paths):
 
 # Max example sentences kept per headword (the graded banks are the target).
 MAX_EX_PER_WORD = 3
+# Max synonyms / antonyms kept per headword and direction. Wiktionary lists
+# sense-ordered candidates, so the first few are the most common ones.
+MAX_REL_PER_KIND = 5
+
+# kaikki relation entries carrying these tags are too specialized for learners.
+_REL_SKIP_TAGS = {"obsolete", "archaic"}
+# A kept relation is a short lowercase English word or <=3-word phrase.
+_REL_WORD_RE = re.compile(r"^[a-z][a-z' -]*[a-z']?$")
 
 
-def build_examples(conn, kaikki_path, max_per_word=MAX_EX_PER_WORD):
-    """Extract Wiktionary (kaikki.org) example sentences for words that appear
-    in the graded category word banks.
+def _rel_candidates(v):
+    """Flatten one kaikki `synonyms`/`antonyms` field into candidate words.
 
-    Streams the ~3GB `kaikki.org-dictionary-English.jsonl` and, for each English
-    headword that belongs to a study bank, keeps up to `max_per_word` clean
-    natural sentences. Restricting to the graded banks (instead of all 770k
-    dictionary words) keeps the `examples` table small while covering exactly
-    the vocabulary learners study. Returns the number of rows inserted.
+    The field can be a plain string (`"lexicon, vocabulary"`), a list of
+    strings, or (most often) a list of objects like `{"word": ..., "tags":
+    [...]}`. Tagged entries (obsolete/archaic) are dropped here; everything is
+    lowercased and comma-joined strings are split into parts.
+    """
+    out = []
+    items = v if isinstance(v, list) else [v]
+    for it in items:
+        if isinstance(it, dict):
+            if set(it.get("tags") or []) & _REL_SKIP_TAGS:
+                continue
+            w = it.get("word") or ""
+        else:
+            w = it or ""
+        for part in str(w).split(","):
+            t = part.strip().lower()
+            if t:
+                out.append(t)
+    return out
+
+
+def _clean_relation(t, head, known_words):
+    """Accept a candidate only if it is a plausible short English word/phrase
+    present in our dictionary and different from the headword itself."""
+    if (t == head or len(t) > 30 or len(t.split()) > 3
+            or "{" in t or not _REL_WORD_RE.match(t)):
+        return False
+    return t in known_words
+
+
+def build_examples(conn, kaikki_path, known_words, max_per_word=MAX_EX_PER_WORD):
+    """Extract Wiktionary (kaikki.org) example sentences *and* synonym/antonym
+    relations for words that appear in the graded category word banks.
+
+    Streams the ~3GB `kaikki.org-dictionary-English.jsonl` once and, for each
+    English headword that belongs to a study bank, keeps up to `max_per_word`
+    clean natural sentences plus up to `MAX_REL_PER_KIND` synonyms and
+    antonyms per word. Restricting to the graded banks (instead of all 770k
+    dictionary words) keeps the `examples`/`word_relations` tables small while
+    covering exactly the vocabulary learners study. `known_words` is the set of
+    lowercased headwords in `words`, used to drop junk/non-word relation
+    candidates. Returns (example_rows, relation_rows) inserted.
     """
     if not os.path.exists(kaikki_path):
         print("  [warn] {} not found; \u4f8b\u53e5\u5c06\u4e3a\u7a7a\uff08\u8fd0\u884c scripts/fetch_data.sh \u4e0b\u8f7d kaikki\uff09".format(kaikki_path))
-        return 0
+        return 0, 0
     import json
     cur = conn.cursor()
     # Target = distinct headwords that belong to at least one category.
@@ -510,9 +571,11 @@ def build_examples(conn, kaikki_path, max_per_word=MAX_EX_PER_WORD):
         if lw:
             targets.setdefault(lw, wid)
     if not targets:
-        return 0
+        return 0, 0
     kept = {}  # word_id -> count kept so far
+    rel_kept = {}  # (word_id, kind) -> count kept so far
     n = 0
+    rel_n = 0
     with open(kaikki_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -545,6 +608,156 @@ def build_examples(conn, kaikki_path, max_per_word=MAX_EX_PER_WORD):
                         break
                 if kept.get(wid, 0) >= max_per_word:
                     break
+            # --- synonyms / antonyms (same streamed record, no extra pass) ---
+            for field, kind in (("synonyms", "syn"), ("antonyms", "ant")):
+                if rel_kept.get((wid, kind), 0) >= MAX_REL_PER_KIND:
+                    continue
+                cands = []
+                for sense in o.get("senses", []):
+                    cands.extend(_rel_candidates(sense.get(field) or []))
+                # Word-level entries come after the (more precise) sense ones.
+                cands.extend(_rel_candidates(o.get(field) or []))
+                for t in cands:
+                    if not _clean_relation(t, w, known_words):
+                        continue
+                    idx = rel_kept.get((wid, kind), 0)
+                    cur.execute(
+                        "INSERT OR IGNORE INTO word_relations "
+                        "(word_id, rel_kind, target, source, order_index) "
+                        "VALUES (?,?,?,?,?)",
+                        (wid, kind, t, "Wiktionary", idx))
+                    if cur.rowcount > 0:
+                        rel_n += 1
+                        rel_kept[(wid, kind)] = idx + 1
+                    if rel_kept.get((wid, kind), 0) >= MAX_REL_PER_KIND:
+                        break
+    conn.commit()
+    return n, rel_n
+
+
+# WordNet 3.1 dict files (Princeton licence, BSD-style). The NLTK wordnet31
+# package ships the same data.* files; adverbs use ss_type 'r'.
+WN_POS_FILES = ("data.noun", "data.verb", "data.adj", "data.adv")
+WN_POS = {"n", "v", "a", "s", "r"}
+_WN_OFFSET_RE = re.compile(r"^\d{7,9}$")
+_WN_WORD_RE = re.compile(r"^[A-Za-z][A-Za-z0-9' -]*$")
+
+
+def _wn_parse(line):
+    """Parse one WordNet 3.1 `data.*` synset line.
+
+    Returns `(offset, pos, words, antonym_targets)` where each antonym target
+    is `(pos, offset)` — synset offsets are only unique *per pos file*, so
+    cross-file lookups must be keyed by both — or None. Handles the 3.1
+    quirks: w_cnt and source/target fields written in hex when >= 10 (e.g.
+    `0b` = 11 words), 4-token pointers (`sym offset pos srctgt`) and the
+    optional `(A` / `(P` / `(S` adjective-position marker before a pointer
+    target. Only adjectives carry `!` (antonym) pointers.
+    """
+    t = line.split()
+    if len(t) < 6 or not _WN_OFFSET_RE.match(t[0]) or t[2] not in WN_POS:
+        return None
+    try:
+        w_cnt = int(t[3], 16)
+    except ValueError:
+        return None
+    words = []
+    i = 4
+    for _ in range(w_cnt):
+        if i + 1 >= len(t):
+            return None
+        w = t[i].replace("_", " ")
+        if _WN_WORD_RE.match(w):
+            words.append(w.lower())
+        i += 2
+    antonyms = []
+    while i < len(t) and t[i] != "|":
+        if t[i] == "!":
+            j = i + 1
+            if j < len(t) and t[j].startswith("("):
+                j += 1  # `(A` / `(P` / `(S` position marker -> skip
+            if (j + 1 < len(t) and _WN_OFFSET_RE.match(t[j])
+                    and t[j + 1] in WN_POS):
+                antonyms.append((t[j + 1], t[j]))
+        i += 1
+    return t[0], t[2], words, antonyms
+
+
+def build_wordnet(conn, wn_dir, known_words):
+    """Top up synonym/antonym coverage with Princeton WordNet 3.1 synsets.
+
+    Runs after build_examples(): Wiktionary has first claim on each
+    (word, kind) group and WordNet only fills the remaining slots up to
+    MAX_REL_PER_KIND, tagging its rows `source='WordNet'`. Synonyms are the
+    other members of the headword's synsets; antonyms follow `!` pointers
+    (adjectives only). Returns rows inserted, 0 when the dict files are
+    absent (fetch via scripts/fetch_data.sh).
+    """
+    if not all(os.path.exists(os.path.join(wn_dir, f)) for f in WN_POS_FILES):
+        print("  [warn] {} missing; \u8fd1\u53cd\u4e49\u4e0d\u4f1a\u8865\u5145\uff08\u8fd0\u884c scripts/fetch_data.sh \u4e0b\u8f7d WordNet\uff09".format(wn_dir))
+        return 0
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT DISTINCT w.id, LOWER(w.word) FROM category_words cw "
+        "JOIN words w ON w.id = cw.word_id")
+    targets = {}
+    for wid, lw in cur.fetchall():
+        if lw:
+            targets.setdefault(lw, wid)
+    # Wiktionary already filled some slots; continue the per-(word,kind) count.
+    rel_kept = {}
+    cur.execute("SELECT word_id, rel_kind, COUNT(*) FROM word_relations "
+                "GROUP BY 1, 2")
+    for wid, kind, cnt in cur.fetchall():
+        rel_kept[(wid, kind)] = cnt
+    # Pass 1: index synsets by (pos, offset) — offsets collide across files —
+    # and headwords by the synsets they appear in.
+    synsets = {}
+    word_synsets = collections.defaultdict(list)
+    for name in WN_POS_FILES:
+        with open(os.path.join(wn_dir, name), "r", encoding="utf-8",
+                  errors="replace") as f:
+            for line in f:
+                if not line[:1].isdigit():
+                    continue  # license header / verb frame continuation
+                r = _wn_parse(line)
+                if not r:
+                    continue
+                off, pos, words, ants = r
+                synsets[(pos, off)] = (words, ants)
+                for w in words:
+                    word_synsets[w].append((pos, off))
+    n = 0
+    for lw, wid in targets.items():
+        offs = word_synsets.get(lw)
+        if not offs:
+            continue
+        for kind in ("syn", "ant"):
+            if rel_kept.get((wid, kind), 0) >= MAX_REL_PER_KIND:
+                continue
+            cands = []
+            for key in offs:
+                words, ants = synsets[key]
+                if kind == "syn":
+                    cands.extend(w for w in words if w != lw)
+                elif key[0] in ("a", "s"):
+                    for tkey in ants:
+                        if tkey in synsets:
+                            cands.extend(synsets[tkey][0])
+            for t in cands:
+                if rel_kept.get((wid, kind), 0) >= MAX_REL_PER_KIND:
+                    break
+                if not _clean_relation(t, lw, known_words):
+                    continue
+                idx = rel_kept.get((wid, kind), 0)
+                cur.execute(
+                    "INSERT OR IGNORE INTO word_relations "
+                    "(word_id, rel_kind, target, source, order_index) "
+                    "VALUES (?,?,?,?,?)",
+                    (wid, kind, t, "WordNet", idx))
+                if cur.rowcount > 0:
+                    rel_kept[(wid, kind)] = idx + 1
+                    n += 1
     conn.commit()
     return n
 
@@ -918,9 +1131,15 @@ def main():
     print("  {} annotations, {} words tagged".format(cefr_seen, cefr_updated))
 
     kaikki_path = os.path.join(args.data_dir, "kaikki.en.jsonl")
-    print("Building examples (Wiktionary) from {} ...".format(kaikki_path))
-    ex_n = build_examples(conn, kaikki_path)
-    print("  inserted {} example sentences".format(ex_n))
+    print("Building examples + relations (Wiktionary) from {} ...".format(kaikki_path))
+    known_words = set(w.lower() for w in ids)
+    ex_n, rel_n = build_examples(conn, kaikki_path, known_words)
+    print("  inserted {} example sentences, {} word relations".format(ex_n, rel_n))
+
+    wn_dir = os.path.join(args.data_dir, "wordnet", "wordnet31")
+    print("Topping up relations (WordNet synsets) from {} ...".format(wn_dir))
+    wn_n = build_wordnet(conn, wn_dir, known_words)
+    print("  inserted {} wordnet relations".format(wn_n))
 
     print("Building FTS5 index (words_fts) ...")
     fts_ok = build_fts(conn)
@@ -967,6 +1186,10 @@ def main():
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("example_total", str(ex_n)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
+                ("relation_total", str(rel_n)))
+    cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
+                ("wordnet_total", str(wn_n)))
+    cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("fts", "1" if fts_ok else "0"))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("root_total", str(root_total)))
@@ -975,7 +1198,7 @@ def main():
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("sentence_trans_total", str(sent_zh)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
-                ("schema_version", "7"))
+                ("schema_version", "8"))
     conn.commit()
 
     # Render the release-bundle licence declaration from license/README.md,

@@ -15,6 +15,7 @@ Cargo.lock
 /data/tatoeba/
 /data/opencc/
 /data/dicts/
+/data/wordnet/
 
 # Built dictionary database (regenerate via scripts/build_dict_db.py)
 /assets/synstudy.db

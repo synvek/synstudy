@@ -6,7 +6,7 @@ use crate::components::zh_detail::ZhDetail;
 use crate::db::dict_repo::DictRepo;
 use crate::db::progress_repo::ProgressRepo;
 use crate::models::{Word, ZhEntry};
-use crate::state::first_line;
+use crate::state::{first_line, DictLookup};
 
 /// Lookup direction of the dictionary page. Serialized into the persisted
 /// search history, so variants stay name-stable.
@@ -143,6 +143,22 @@ pub fn Dictionary() -> Element {
         });
     }
     let add_history = HistoryAdder { history };
+
+    // Cross-page lookup (e.g. a synonym chip click in WordDetail): take over
+    // the pending word, switch to 英汉 and open the exact entry directly.
+    // Reading the signal here subscribes the render, so it is consumed once.
+    let mut dict_lookup: DictLookup = use_context();
+    if let Some(t) = dict_lookup.0().clone() {
+        dict_lookup.0.set(None);
+        mode.set(SearchMode::En2Zh);
+        query.set(t.clone());
+        selected.set(None);
+        selected_zh.set(None);
+        add_history.add(SearchMode::En2Zh, t.clone());
+        if let Some(w) = dict.get_by_word(&t) {
+            selected.set(Some(w));
+        }
+    }
 
     // Each direction has its own memo; the inactive one short-circuits to empty.
     let dict_en = dict.clone();
