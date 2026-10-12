@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::db::{dict_repo::DictRepo, progress_repo::ProgressRepo};
 use crate::models::Category;
-use crate::state::{ExamFilter, QuizMode, Settings, StudyOrder, Theme, SETTINGS_KEY};
+use crate::state::{ExamFilter, FontScale, QuizMode, Settings, StudyOrder, Theme, SETTINGS_KEY};
 use crate::srs::Scheduler;
 use crate::tts;
 
@@ -148,6 +148,28 @@ pub fn SettingsPage() -> Element {
                         }
                     }
                 }
+                div { class: "setting-row",
+                    label { "字体大小" }
+                    div { class: "seg",
+                        for f in FontScale::all() {
+                            button {
+                                key: "{f:?}",
+                                class: if cur.font_scale == *f { "seg-btn active" } else { "seg-btn" },
+                                onclick: {
+                                    let mut persist = persist.clone();
+                                    let f = *f;
+                                    move |_| {
+                                        let mut s = settings.read().clone();
+                                        s.font_scale = f;
+                                        persist(s);
+                                    }
+                                },
+                                "{f.label()}"
+                            }
+                        }
+                    }
+                }
+                p { class: "muted hint", "真机上若觉得文字偏小可调大档位；界面（含按钮与间距）会整体等比放大，选择即时生效并记住。" }
             }
 
             section { class: "setting-group",
@@ -482,7 +504,7 @@ fn AboutOverlay(
                         p { "使用 Rust + Dioxus 构建的纯客户端、离线优先英语词典与词汇学习工具：内置英汉 / 汉英双向词典与分级词库，支持学习、背诵（间隔重复 SRS）、测验、词根与生词本，所有进度仅保存在本地。" }
                         div { class: "about-kv setting-row column",
                             div { class: "kv", span { class: "k", "平台" } span { class: "v", "macOS / Windows / Linux 桌面端" } }
-                            div { class: "kv", span { class: "k", "技术栈" } span { class: "v", "Rust · Dioxus 0.7 · SQLite" } }
+                            div { class: "kv", span { class: "k", "技术栈" } span { class: "v", "Rust · Dioxus 0.8 · SQLite" } }
                             div { class: "kv", span { class: "k", "收录单词" } span { class: "v", "{total_words}" } }
                             div { class: "kv", span { class: "k", "词典数据库（只读）" } span { class: "v", "{dict_path}" } }
                             div { class: "kv", span { class: "k", "进度数据库（本地可写）" } span { class: "v", "{progress_path}" } }

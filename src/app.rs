@@ -56,12 +56,15 @@ pub fn App() -> Element {
     }
 
     // Reflect the color-scheme preference onto <html data-theme="..."> so the
-    // CSS variables in main.css switch between light and dark palettes.
+    // CSS variables in main.css switch between light and dark palettes, and
+    // the font-scale preference onto <html data-font="..."> (root zoom).
     let settings: Signal<Settings> = use_context();
     use_effect(move || {
         let theme = settings().theme.as_attr();
+        let font = settings().font_scale.as_attr();
         document::eval(&format!(
-            "document.documentElement.setAttribute('data-theme','{theme}')"
+            "document.documentElement.setAttribute('data-theme','{theme}');\
+             document.documentElement.setAttribute('data-font','{font}')"
         ));
     });
 

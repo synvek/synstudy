@@ -94,6 +94,48 @@ impl Theme {
     }
 }
 
+/// UI text scale, applied as a root `zoom` via `<html data-font="...">`
+/// (see main.css). Scaling the whole layout — not just font-size — keeps
+/// padding/controls proportional so nothing overflows at bigger levels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum FontScale {
+    #[default]
+    Standard,
+    Large,
+    ExtraLarge,
+    ExtraExtraLarge,
+}
+
+impl FontScale {
+    /// Value written to the root element's `data-font` attribute.
+    pub fn as_attr(self) -> &'static str {
+        match self {
+            FontScale::Standard => "std",
+            FontScale::Large => "lg",
+            FontScale::ExtraLarge => "xl",
+            FontScale::ExtraExtraLarge => "xxl",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FontScale::Standard => "标准",
+            FontScale::Large => "大号",
+            FontScale::ExtraLarge => "超大",
+            FontScale::ExtraExtraLarge => "特大",
+        }
+    }
+
+    pub fn all() -> &'static [FontScale] {
+        &[
+            FontScale::Standard,
+            FontScale::Large,
+            FontScale::ExtraLarge,
+            FontScale::ExtraExtraLarge,
+        ]
+    }
+}
+
 /// Spelling-quiz presentation mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum QuizMode {
@@ -259,6 +301,9 @@ pub struct Settings {
     /// Color scheme. `#[serde(default)]` keeps older saved settings parseable.
     #[serde(default)]
     pub theme: Theme,
+    /// UI text scale (root zoom), see `FontScale`.
+    #[serde(default)]
+    pub font_scale: FontScale,
     /// Spelling-quiz mode (see meaning vs. hear audio).
     #[serde(default)]
     pub quiz_mode: QuizMode,
@@ -300,6 +345,7 @@ impl Default for Settings {
             study_order: StudyOrder::default(),
             study_size: default_study_size(),
             theme: Theme::default(),
+            font_scale: FontScale::default(),
             quiz_mode: QuizMode::default(),
             quiz_exam_filter: ExamFilter::default(),
             quiz_auto_tts: true,
