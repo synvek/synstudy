@@ -143,8 +143,10 @@ body {
   transition: background .15s, color .15s;
 }
 .nav-btn:hover { background: var(--bg-soft); color: var(--text); }
-.nav-btn.active { background: var(--primary); color: var(--on-primary); font-weight: 500; }
+/* .gear must precede .active: both have specificity (0,2,0), and the active
+   state of the settings button has to win the cascade (white on primary). */
 .nav-btn.gear { color: var(--muted); }
+.nav-btn.active { background: var(--primary); color: var(--on-primary); font-weight: 500; }
 .nav-divider { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
 
 /* ---------------- Mobile bottom tab bar ---------------- */
@@ -914,4 +916,7 @@ h1, h2, h3, h4 { color: var(--text); }
   .setting-row .seg, .stepper { align-self: flex-start; }
   .kv .v { text-align: left; }
   .card { padding: 30px 20px; }
+  /* Desktop-only blocks (keyboard shortcuts, on-screen shortcut hints, file
+     paths): no physical keyboard / meaningful FS paths on mobile. */
+  .desktop-only { display: none; }
 }

@@ -152,7 +152,7 @@ pub fn WordDetail(word: Word) -> Element {
                             }
                         }
                     }
-                    p { class: "wd-example-note", "近义/反义词来自 Wiktionary（CC BY-SA 4.0）与 WordNet（Princeton 许可），点击可跳转查询。" }
+                    p { class: "wd-example-note", "- Wiktionary/WordNet" }
                 }
             }
 
@@ -219,7 +219,7 @@ pub fn WordDetail(word: Word) -> Element {
                             }
                         })}
                     }
-                    p { class: "wd-example-note", "例句来自 Wiktionary（CC BY-SA 4.0）" }
+                    p { class: "wd-example-note", "- Wiktionary" }
                 }
             }
 
@@ -261,7 +261,7 @@ pub fn WordDetail(word: Word) -> Element {
                             }
                         })}
                     }
-                    p { class: "wd-example-note", "句子来自 Tatoeba（CC-BY 2.0 FR），按考纲词自动标记。" }
+                    p { class: "wd-example-note", "- Tatoeba" }
                 }
             }
 

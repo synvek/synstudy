@@ -407,7 +407,7 @@ pub fn Study() -> Element {
                                 }
                             }
                             if !locked {
-                                p { class: "config-lock", "快捷键：Enter / 空格 开始学习" }
+                                p { class: "config-lock desktop-only", "快捷键：Enter / 空格 开始学习" }
                             }
                         }
 

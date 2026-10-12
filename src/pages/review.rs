@@ -115,7 +115,7 @@ pub fn Review() -> Element {
                         if due == 0 {
                             p { class: "muted hint", "暂无到期单词，先去「学习」认识一些新词吧。" }
                         } else {
-                            p { class: "muted hint", "快捷键：Enter / 空格 开始" }
+                            p { class: "muted hint desktop-only", "快捷键：Enter / 空格 开始" }
                         }
                     }
                 }

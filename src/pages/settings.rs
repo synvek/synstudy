@@ -243,7 +243,7 @@ pub fn SettingsPage() -> Element {
                         }
                     }
                     p { class: "muted hint",
-                        "句库题使用 Tatoeba 开放句库（CC-BY 2.0 FR），按考纲词自动标记到四级/六级/专四/专八/托福/GRE。不包含任何受版权保护的真题内容。"
+                        "句库题使用 Tatoeba 开放句库（CC-BY 2.0 FR），按考纲词自动标记到四级/六级/专四/专八/托福/GRE。"
                     }
                 }
                 div { class: "setting-row",
@@ -357,7 +357,7 @@ pub fn SettingsPage() -> Element {
                 p { class: "muted hint", "发音使用系统内置语音（离线），需操作系统已安装英文语音包。" }
             }
 
-            section { class: "setting-group",
+            section { class: "setting-group desktop-only",
                 h3 { "快捷键" }
                 div { class: "setting-row column",
                     div { class: "kv", span { class: "k", "切换页面" } span { class: "v", "Ctrl / ⌘ + 1~8" } }
@@ -369,7 +369,7 @@ pub fn SettingsPage() -> Element {
                 }
             }
 
-            section { class: "setting-group",
+            section { class: "setting-group desktop-only",
                 h3 { "数据" }
                 div { class: "setting-row column",
                     div { class: "kv", span { class: "k", "词典数据库" } span { class: "v", "{dict_path}" } }
@@ -449,10 +449,11 @@ pub fn SettingsPage() -> Element {
 
 /// Third-party data sources bundled into `assets/synstudy.db`, shown under the
 /// "版权与许可" tab as (name, what we use, license).
-const DATA_SOURCES: [(&str, &str, &str); 6] = [
+const DATA_SOURCES: [(&str, &str, &str); 7] = [
     ("ECDICT", "英汉释义、音标、词形、词频、考试标签", "MIT"),
     ("CC-CEDICT", "汉英词典（中文主键）", "CC-BY-SA 4.0"),
-    ("Wiktionary / kaikki.org", "分级词库自然例句", "CC BY-SA 4.0"),
+    ("Wiktionary / kaikki.org", "分级词库自然例句与近义/反义词", "CC BY-SA 4.0"),
+    ("WordNet", "近义/反义词补充", "Princeton 许可"),
     ("Tatoeba", "考试分级句库与参考译文", "CC-BY 2.0 FR"),
     ("OpenCC", "构建期繁→简转换（映射表不入库）", "Apache-2.0"),
     ("CEFR-J", "A1–C2 难度等级标注", "免费商用须引用"),
