@@ -154,17 +154,33 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 ENT_PLIST="${TMP}/entitlements.plist"
 
-# 从 profile 解出 entitlements（沿用其 team / get-task-allow 等字段，避免签装不匹配）。
+# 提取 entitlements：优先取 dx 原签名（最忠实，team / get-task-allow 与 profile 天然一致）；
+# 无有效原签名时退回解码 profile 读 Entitlements 子树。
+# 注意：PlistBuddy 没有 -k 选项，读子树必须用 -c 'Print :Key'（曾因此 set -e 静默退出）。
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "DRY-RUN> 从 $PROVISION 提取 entitlements 并 codesign --force --deep"
+  echo "DRY-RUN> 提取 entitlements 并 codesign --force --deep"
 else
-  security cms -D -i "$PROVISION" > "${TMP}/profile.plist"
-  /usr/libexec/PlistBuddy -x -k Entitlements "${TMP}/profile.plist" > "$ENT_PLIST"
-  cp -f "$PROVISION" "${APP_DIR}/embedded.mobileprovision"
+  # 注意：新版 codesign 的 `--entitlements -` 输出的是 [Dict] 文本 dump（不能作重签输入），
+  # 必须用 `--entitlements :-` 才强制 XML plist。
+  if ! codesign --display --entitlements :- "$APP_DIR" > "$ENT_PLIST" 2>/dev/null \
+     || ! head -1 "$ENT_PLIST" | grep -q '<?xml'; then
+    security cms -D -i "$PROVISION" > "${TMP}/profile.plist" \
+      || { echo "❌ 解码描述文件失败: security cms -D $PROVISION" >&2; exit 1; }
+    /usr/libexec/PlistBuddy -x -c 'Print :Entitlements' "${TMP}/profile.plist" > "$ENT_PLIST" \
+      || { echo "❌ 描述文件里读不到 Entitlements（PlistBuddy）" >&2; exit 1; }
+    echo "==> 无原签名，entitlements 取自 profile"
+  else
+    echo "==> entitlements 取自 .app 现有签名（dx 所签）"
+  fi
+  # 复用分支下 PROVISION 就是包内那份，同路径 cp 会报 identical 并返回 1（set -e 会误断）。
+  if [ "$PROVISION" != "${APP_DIR}/embedded.mobileprovision" ]; then
+    cp -f "$PROVISION" "${APP_DIR}/embedded.mobileprovision"
+  fi
   codesign --force --deep --sign "$IDENTITY" \
     --entitlements "$ENT_PLIST" \
     --timestamp=none \
-    "$APP_DIR"
+    "$APP_DIR" \
+    || { echo "❌ codesign 失败（检查钥匙串解锁 / 身份名称）" >&2; exit 1; }
   echo "==> 校验签名: codesign --verify"
   codesign --verify --verbose=2 "$APP_DIR" && echo "✅ 签名有效"
 fi
