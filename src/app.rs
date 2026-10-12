@@ -66,6 +66,16 @@ pub fn App() -> Element {
     });
 
     rsx! {
+        // dx's built-in HTML template ships a bare `width=device-width,
+        // initial-scale=1` viewport. Adding viewport-fit=cover (WebKit merges
+        // duplicate viewport metas, last descriptor wins) makes the WKWebView
+        // layout viewport the full screen so `100dvh`/fixed elements below can
+        // trust it — otherwise the viewport/visible-area mismatch lets
+        // document panning drag the fixed bottom tab bar during scrolls.
+        document::Meta {
+            name: "viewport",
+            content: "width=device-width, initial-scale=1, viewport-fit=cover",
+        }
         document::Style { "{CSS}" }
         AppShell {}
     }

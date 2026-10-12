@@ -81,6 +81,10 @@ html, body, #main, .app {
   height: 100%;
   margin: 0;
 }
+/* Lock the document: all scrolling happens inside .content. Without this,
+   iOS WKWebView can pan the whole document on overscroll and drags the
+   position:fixed bottom tab bar along with it. */
+html, body { overflow: hidden; }
 
 body {
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
@@ -94,6 +98,10 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  /* dvh = the *visible* viewport; on iOS it collapses to the on-screen area
+     so the shell can never overflow the screen and start document panning.
+     The vh line above stays as the fallback for engines without dvh. */
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -216,7 +224,7 @@ body {
 .about-src-lic { color: var(--muted); font-size: 13px; text-align: right; flex-shrink: 0; }
 
 /* ---------------- Layout ---------------- */
-.content { flex: 1; overflow-y: auto; padding: 28px 40px 40px; }
+.content { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 28px 40px 40px; }
 .page { max-width: 1280px; margin: 0 auto; }
 .page-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
 .page-head h1 { font-size: 22px; margin: 0; }
@@ -851,7 +859,7 @@ h1, h2, h3, h4 { color: var(--text); }
 @media (max-width: 768px) {
   .navbar.top { display: none; }
   .mobile-tabbar { display: block; }
-  .content { padding: 14px 16px calc(80px + env(safe-area-inset-bottom, 0px)); }
+  .content { padding: calc(14px + env(safe-area-inset-top, 0px)) 16px calc(80px + env(safe-area-inset-bottom, 0px)); }
   .page { max-width: 100%; }
   .page-hero { flex-direction: column; align-items: stretch; gap: 16px; margin-bottom: 16px; }
   .page-hero h1 { font-size: 24px; }
