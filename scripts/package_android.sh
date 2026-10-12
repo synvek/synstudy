@@ -31,7 +31,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-PACKAGE="com.synstudy.synstudy"
+PACKAGE="com.synvek.synstudy"
 DB_SRC="assets/synstudy.db"
 NOTICES_SRC="assets/THIRD-PARTY-NOTICES.txt"
 

@@ -7,10 +7,13 @@ default_platform = "desktop"
 asset_dir = "assets"
 
 # Bundle identifier + version used across macOS .app / iOS .ipa / Android APK.
-# Matches the reverse-DNS prefix already used by `directories::ProjectDirs`.
+# Reverse-DNS app identity: the unique key on App Store / Google Play, so it
+# must match signing & provisioning and never change after first release.
+# (Desktop progress-db dir comes from directories::ProjectDirs which keeps its
+# own "com.synstudy.synstudy" id; changing this does NOT move user data.)
 [bundle]
-identifier = "com.synstudy.synstudy"
-publisher = "synstudy"
+identifier = "com.synvek.synstudy"
+publisher = "synvek"
 version = "0.1.0"
 # Files copied into the platform's bundle resource directory.
 # Paths are relative to the crate root.
@@ -22,7 +25,7 @@ resources = [
 # Legacy desktop window settings; the CLI tolerates (and largely ignores) this
 # block in 0.7.10, but we keep it for documentation and future revival.
 [desktop]
-title = "synstudy - 英语学习工具"
+title = "英语学习词典"
 width = 1180
 height = 800
 min_width = 900
@@ -31,8 +34,8 @@ resizable = true
 maximizable = true
 
 [ios]
-identifier = "com.synstudy.synstudy"
-publisher = "synstudy"
+identifier = "com.synvek.synstudy"
+publisher = "synvek"
 # Minimum iOS the app can install on. WKWebView `speechSynthesis` needs 17+
 # for audio output; the UI itself works down to 15.
 deployment_target = "15.0"
@@ -48,9 +51,13 @@ deployment_target = "15.0"
 # inject it via [ios.plist] (nested dict supported by the CLI plist serializer).
 [ios.plist]
 UIApplicationSceneManifest = { UIApplicationSupportsMultipleScenes = true }
+# Home-screen icon caption (dx seeds these from [application] name; overriding
+# here gives the Chinese display name). CFBundleName must stay <= 15 chars.
+CFBundleDisplayName = "英语学习词典"
+CFBundleName = "英语学习词典"
 
 [android]
-identifier = "com.synstudy.synstudy"
-publisher = "synstudy"
+identifier = "com.synvek.synstudy"
+publisher = "synvek"
 min_sdk = 24
 target_sdk = 34

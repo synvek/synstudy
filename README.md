@@ -220,7 +220,7 @@ bash scripts/deploy_ios_device.sh --profile /path/to/dev.mobileprovision
 流程：`dx build --platform ios --device` → **签名前**注入词典库（改动已签名的 `.app` 会使签名失效）→ 从描述文件提取 entitlements 并 `codesign --force --deep` 重签 → `xcrun devicectl` 安装并启动。
 
 - 签名身份默认取钥匙串里第一枚 `Apple Development` 证书，可用 `--identity "..."` 覆盖；
-- provisioning profile 必须**覆盖目标设备 UDID + `com.synstudy.synstudy`**：免费个人团队用 Xcode（Signing & Capabilities → 选 Team）生成后，从 `~/Library/Developer/Xcode/UserData/Provisioning Profiles/` 取 `.mobileprovision` 传入；
+- provisioning profile 必须**覆盖目标设备 UDID + `com.synvek.synstudy`**：免费个人团队用 Xcode（Signing & Capabilities → 选 Team）生成后，从 `~/Library/Developer/Xcode/UserData/Provisioning Profiles/` 取 `.mobileprovision` 传入；
 - 设备默认自动探测第一台已配对真机（按 `reality != "simulated"` 排除模拟器），也可 `--device <UDID|名称>` 指定；
 - 辅助选项：`--skip-sign` 只构建 + 注入不签名；`--dry-run` 打印执行计划。
 

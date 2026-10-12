@@ -22,5 +22,25 @@ mod tts;
 /// Called by the `[[bin]]`'s `fn main` on every platform.
 pub fn run() {
     platform::init();
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        // Without an explicit title dioxus-desktop falls back to "Dioxus App"
+        // when the binary isn't built through `dx` (plain `cargo run` doesn't
+        // inject DIOXUS_APP_TITLE). Initial size mirrors Dioxus.toml's
+        // [desktop] block, which dx only applies on its own builds.
+        use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
+        use dioxus::prelude::VirtualDom;
+        // NOTE: deliberately no min_inner_size (Dioxus.toml's 900x640 would
+        // pin the window above the 768px mobile breakpoint and make the
+        // responsive/mobile layout impossible to preview on desktop).
+        let window = WindowBuilder::new()
+            .with_title("英语学习词典")
+            .with_inner_size(LogicalSize::new(1180.0, 800.0));
+        dioxus::desktop::launch::launch_virtual_dom(
+            VirtualDom::new(app::App),
+            Config::new().with_window(window),
+        );
+    }
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     dioxus::launch(app::App);
 }
