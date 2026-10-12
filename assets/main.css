@@ -853,8 +853,13 @@ h1, h2, h3, h4 { color: var(--text); }
   .mobile-tabbar { display: block; }
   .content { padding: 14px 16px calc(80px + env(safe-area-inset-bottom, 0px)); }
   .page { max-width: 100%; }
-  .page-hero { flex-direction: column; align-items: stretch; gap: 16px; }
+  .page-hero { flex-direction: column; align-items: stretch; gap: 16px; margin-bottom: 16px; }
   .page-hero h1 { font-size: 24px; }
+  /* Keep the 英汉/汉英 toggle hug-content: `stretch` above would otherwise
+     pull the pill group to full width, and the hero needs the bottom margin
+     because (unlike desktop, where p.sub's UA margin breathes) the stacked
+     layout ends on the pill group right before the search box. */
+  .page-hero .pill-group { align-self: flex-start; }
   .search-box { height: 52px; padding: 0 6px 0 16px; gap: 10px; }
   .search-kbd { display: none; }
   .dict-body { grid-template-columns: 1fr; gap: 16px; }
