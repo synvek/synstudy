@@ -227,14 +227,33 @@ body {
 .about-list li { line-height: 1.6; }
 .about-srcs { display: flex; flex-direction: column; margin: 2px 0; }
 .about-src {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; flex-direction: column; gap: 6px;
   padding: 9px 0; border-bottom: 1px solid var(--border);
 }
 .about-src:last-child { border-bottom: none; }
+.about-src-row { display: flex; flex-direction: column; gap: 4px; }
+.about-src-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; background: transparent; border: none; cursor: pointer;
+  color: var(--text); text-align: left; font: inherit; padding: 0;
+}
 .about-src-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .about-src-name { font-weight: 600; }
 .about-src-usage { font-size: 12px; }
 .about-src-lic { color: var(--muted); font-size: 13px; text-align: right; flex-shrink: 0; }
+.about-src-chevron { color: var(--muted); font-size: 14px; line-height: 1; flex-shrink: 0; }
+.about-src-link {
+  font-size: 12px; color: var(--primary); text-decoration: none;
+  word-break: break-all; padding-left: 2px;
+}
+.about-src-link:hover { text-decoration: underline; }
+.about-license-text {
+  margin: 2px 0 0; padding: 12px 14px; max-height: 320px; overflow: auto;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  color: var(--text);
+}
 
 /* ---------------- Layout ---------------- */
 .content { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 28px 40px 40px; }

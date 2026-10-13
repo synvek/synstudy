@@ -447,17 +447,131 @@ pub fn SettingsPage() -> Element {
     }
 }
 
-/// Third-party data sources bundled into `assets/synstudy.db`, shown under the
-/// "版权与许可" tab as (name, what we use, license).
-const DATA_SOURCES: [(&str, &str, &str); 7] = [
-    ("ECDICT", "英汉释义、音标、词形、词频、考试标签", "MIT"),
-    ("CC-CEDICT", "汉英词典（中文主键）", "CC-BY-SA 4.0"),
-    ("Wiktionary / kaikki.org", "分级词库自然例句与近义/反义词", "CC BY-SA 4.0"),
-    ("WordNet", "近义/反义词补充", "Princeton 许可"),
-    ("Tatoeba", "考试分级句库与参考译文", "CC-BY 2.0 FR"),
-    ("OpenCC", "构建期繁→简转换（映射表不入库）", "Apache-2.0"),
-    ("CEFR-J", "A1–C2 难度等级标注", "免费商用须引用"),
+/// A single license entry shown under the "版权与许可" tab: what it covers,
+/// the license name, a canonical external link, and the full license text
+/// embedded at compile time from the repo's license files (so users can read
+/// the actual terms in-app, even offline).
+struct LicenseDoc {
+    name: &'static str,
+    usage: &'static str,
+    lic: &'static str,
+    url: &'static str,
+    text: &'static str,
+}
+
+/// The source-code license(s) Synstudy is distributed under.
+const SOFTWARE_LICENSES: &[LicenseDoc] = &[
+    LicenseDoc {
+        name: "MIT License",
+        usage: "Synstudy 源代码可选许可之一",
+        lic: "MIT",
+        url: "https://opensource.org/licenses/MIT",
+        text: include_str!("../../LICENSE-MIT.txt"),
+    },
+    LicenseDoc {
+        name: "Apache License 2.0",
+        usage: "Synstudy 源代码可选许可之一",
+        lic: "Apache-2.0",
+        url: "https://www.apache.org/licenses/LICENSE-2.0",
+        text: include_str!("../../LICENSE-APACHE.txt"),
+    },
 ];
+
+/// Third-party data sources bundled into `assets/synstudy.db`, each with its
+/// official license link and the full terms embedded from `license/`.
+const DATA_LICENSES: &[LicenseDoc] = &[
+    LicenseDoc {
+        name: "ECDICT",
+        usage: "英汉释义、音标、词形、词频、考试标签",
+        lic: "MIT",
+        url: "https://github.com/skywind3000/ECDICT",
+        text: include_str!("../../license/ECDICT-LICENSE.txt"),
+    },
+    LicenseDoc {
+        name: "CC-CEDICT",
+        usage: "汉英词典（中文主键）",
+        lic: "CC-BY-SA 4.0",
+        url: "https://www.mdbg.net/chinese/dictionary?page=cc-cedict",
+        text: include_str!("../../license/CC-CEDICT-LICENSE.txt"),
+    },
+    LicenseDoc {
+        name: "Wiktionary / kaikki.org",
+        usage: "分级词库自然例句与近义/反义词",
+        lic: "CC BY-SA 4.0",
+        url: "https://kaikki.org/dictionary/English/",
+        text: include_str!("../../license/Wiktionary-kaikki-LICENSE.txt"),
+    },
+    LicenseDoc {
+        name: "WordNet",
+        usage: "近义/反义词补充",
+        lic: "Princeton 许可",
+        url: "https://wordnet.princeton.edu/",
+        text: include_str!("../../license/WORDNET-LICENSE.txt"),
+    },
+    LicenseDoc {
+        name: "Tatoeba",
+        usage: "考试分级句库与参考译文",
+        lic: "CC-BY 2.0 FR",
+        url: "https://tatoeba.org/",
+        text: include_str!("../../license/Tatoeba-LICENSE.txt"),
+    },
+    LicenseDoc {
+        name: "OpenCC",
+        usage: "构建期繁→简转换（映射表不入库）",
+        lic: "Apache-2.0",
+        url: "https://github.com/BYVoid/OpenCC",
+        text: include_str!("../../license/OpenCC-LICENSE.txt"),
+    },
+    LicenseDoc {
+        name: "CEFR-J",
+        usage: "A1–C2 难度等级标注",
+        lic: "免费商用须引用",
+        url: "https://github.com/openlanguageprofiles/olp-en-cefrj",
+        text: include_str!("../../license/CEFR-J-NOTICE.txt"),
+    },
+];
+
+/// Render one "版权与许可" accordion group: each source is a clickable row that
+/// expands to reveal its embedded license text and links out to the official
+/// license page. `open` is the shared single-open state across all groups.
+/// A plain fn (not a component) so the `Signal` can be passed by value without
+/// pulling in component-props trait bounds.
+fn license_docs_view(docs: &'static [LicenseDoc], open: Signal<Option<&'static str>>) -> Element {
+    let mut open = open;
+    rsx! {
+        div { class: "about-srcs",
+            for d in docs {
+                {
+                    let name = d.name;
+                    let is_open = open().is_some_and(|o| o == name);
+                    rsx! {
+                        div { key: "{name}", class: if is_open { "about-src open" } else { "about-src" },
+                            div { class: "about-src-row",
+                                button {
+                                    class: "about-src-head",
+                                    onclick: move |_| open.set(if is_open { None } else { Some(name) }),
+                                    span { class: "about-src-main",
+                                        span { class: "about-src-name", "{d.name}" }
+                                        span { class: "about-src-usage muted", "{d.usage}" }
+                                    }
+                                    span { class: "about-src-lic", "{d.lic}" }
+                                    span { class: "about-src-chevron", if is_open { "\u{2304}" } else { "\u{2303}" } }
+                                }
+                                // Plain anchor (no target): dioxus-desktop's navigation
+                                // handler opens http(s) links in the system browser and
+                                // blocks the webview, so this never hijacks the app.
+                                a { class: "about-src-link", href: "{d.url}", "{d.url}" }
+                            }
+                            if is_open {
+                                pre { class: "about-license-text", "{d.text}" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 /// Full-screen "关于" panel with three sub-tabs (About / License / Privacy),
 /// reached from the "关于" section of Settings.
@@ -471,6 +585,8 @@ fn AboutOverlay(
     on_close: EventHandler<()>,
 ) -> Element {
     let version = env!("CARGO_PKG_VERSION");
+    // Which license entry is expanded in the "版权与许可" tab (single-open).
+    let open = use_signal(|| Option::<&'static str>::None);
     rsx! {
         div { class: "page settings about",
             div { class: "page-head",
@@ -508,20 +624,11 @@ fn AboutOverlay(
                 AboutTab::License => rsx! {
                     div { class: "about-card",
                         h3 { "软件许可" }
-                        p { "Synstudy 的源代码采用 MIT OR Apache-2.0 双许可，Copyright © 2026 Synvek。你可以自由使用、修改与再分发，包括商业用途。" }
+                        p { "Synstudy 的源代码采用 MIT OR Apache-2.0 双许可，Copyright © 2026 Synvek。你可以自由使用、修改与再分发，包括商业用途。点击任一项可查看许可证全文，也可访问其官方链接。" }
+                        { license_docs_view(SOFTWARE_LICENSES, open) }
                         h3 { "数据许可（分轨授权）" }
-                        p { "打包的词典数据库收录了以下第三方开放数据，各自遵循原始许可证；数据许可与代码许可相互独立。" }
-                        div { class: "about-srcs",
-                            for (name, usage, lic) in DATA_SOURCES {
-                                div { key: "{name}", class: "about-src",
-                                    div { class: "about-src-main",
-                                        span { class: "about-src-name", "{name}" }
-                                        span { class: "about-src-usage muted", "{usage}" }
-                                    }
-                                    span { class: "about-src-lic", "{lic}" }
-                                }
-                            }
-                        }
+                        p { "打包的词典数据库收录了以下第三方开放数据，各自遵循原始许可证；数据许可与代码许可相互独立。展开可查看随包嵌入的完整条款。" }
+                        { license_docs_view(DATA_LICENSES, open) }
                         p { class: "muted hint", "对外分发含 CC-BY-SA 成分的数据（如 zh_entries / examples 表）时，该部分演绎数据须以 CC-BY-SA 4.0 相同许可共享；本项目源代码不受其传染。随附的开源构建脚本（scripts/）可自助重建数据库。" }
                         p { class: "muted hint", "本项目不分发也不爬取 CET/TEM/TOEFL/GRE 等受版权保护的真题内容；考试级别仅基于开放的 ECDICT 考纲元数据自行标注。" }
                     }
