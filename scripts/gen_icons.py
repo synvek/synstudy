@@ -14,6 +14,14 @@ runtime window/taskbar icon, and splash-logo.png (mark cropped to its alpha
 bbox, transparent) is embedded by src/components/splash.rs for the mobile
 in-app startup splash.
 
+The DESKTOP icons (app-icon.png / -256 / -32) are rendered from the same
+branded master as iOS -- the mark on the dark graphite gradient with the white
+swoosh knocked out -- so the running app's Dock icon and the Finder icon match
+the mobile brand instead of showing the bare transparent mark. On macOS we also
+emit app-icon.icns (via iconutil): dx writes CFBundleIconFile=icon.icns into
+the .app but never produces the file, so scripts/inject_macos_icon.py copies
+this icns into Contents/Resources after `dx bundle`.
+
 Usage:
   python3 scripts/gen_icons.py            # regenerate from assets/logo.svg
   python3 scripts/gen_icons.py --check    # verify outputs exist & match source
@@ -25,13 +33,18 @@ import base64
 import io
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOGO_SVG = os.path.join(ROOT, "assets", "logo.svg")
 OUT_DIR = os.path.join(ROOT, "assets", "icons")
 
-# name -> edge size (px); 1024 is the [bundle] icon source for dx.
+# name -> edge size (px); 1024 is the [bundle] icon source for dx. All three
+# are rendered from the branded master (see build_ios_master), not the bare
+# transparent mark, so desktop matches the iOS/splash brand.
 SIZES = {
     "app-icon.png": 1024,       # dx [bundle] icon: icns/ico generator (desktop)
     "app-icon-256.png": 256,    # runtime window icon (include_bytes!)
@@ -157,6 +170,41 @@ def build_splash_logo(src, Image):
     return canvas
 
 
+# macOS .icns iconset layout (filename -> pixel edge). iconutil folds these into
+# the multi-resolution icon the Finder/Dock read via CFBundleIconFile.
+MAC_ICONSET = [
+    ("icon_16x16.png", 16), ("icon_16x16@2x.png", 32),
+    ("icon_32x32.png", 32), ("icon_32x32@2x.png", 64),
+    ("icon_128x128.png", 128), ("icon_128x128@2x.png", 256),
+    ("icon_256x256.png", 256), ("icon_256x256@2x.png", 512),
+    ("icon_512x512.png", 512), ("icon_512x512@2x.png", 1024),
+]
+
+
+def build_macos_icns(master, out_path, Image):
+    """Render the .iconset from `master` and run iconutil to make an .icns.
+
+    macOS-only (needs iconutil); returns True on success, False when skipped so
+    non-mac hosts simply don't get an .icns. dx writes CFBundleIconFile=icon.icns
+    into the .app but never generates it, so inject_macos_icon.py copies the
+    produced file into Contents/Resources after `dx bundle`.
+    """
+    if sys.platform != "darwin" or not shutil.which("iconutil"):
+        return False
+    with tempfile.TemporaryDirectory() as td:
+        iconset = os.path.join(td, "app.iconset")
+        os.makedirs(iconset)
+        for name, px in MAC_ICONSET:
+            master.resize((px, px), Image.LANCZOS).save(
+                os.path.join(iconset, name))
+        r = subprocess.run(["iconutil", "-c", "icns", iconset, "-o", out_path],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            print("WARN: iconutil failed: " + (r.stderr or r.stdout).strip())
+            return False
+    return True
+
+
 def extract_png(svg_path):
     """Pull the first base64 data-URI PNG out of the SVG; return raw bytes."""
     with open(svg_path, "r", encoding="utf-8") as f:
@@ -188,12 +236,14 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     ios_master = build_ios_master(src, Image)
     splash_logo = build_splash_logo(src, Image)
-    # (out_dir, name, edge, flatten, base, punch). `punch` knocks the white
-    # swoosh out to transparency AFTER scaling to `edge`, so the Android
-    # launcher icons match the iOS/splash treatment (no white patches) while
-    # keeping the logo's original padded framing; punching post-resize also
-    # sweeps the downscaled anti-aliased edge instead of leaving a white halo.
-    jobs = [(OUT_DIR, name, edge, False, src, False) for name, edge in SIZES.items()]
+    # (out_dir, name, edge, flatten, base, punch). The desktop SIZES render from
+    # `ios_master` (branded, opaque) so the running-app icon matches the brand;
+    # `punch` knocks the white swoosh out to transparency AFTER scaling to
+    # `edge`, so the Android launcher icons match the iOS/splash treatment (no
+    # white patches) while keeping the logo's original padded framing; punching
+    # post-resize also sweeps the downscaled anti-aliased edge instead of
+    # leaving a white halo.
+    jobs = [(OUT_DIR, name, edge, False, ios_master, False) for name, edge in SIZES.items()]
     jobs += [(os.path.join(OUT_DIR, "ios"), n, e, True, ios_master, False)
              for n, e in IOS_SIZES.items()]
     jobs += [(os.path.join(OUT_DIR, "android"), n, e, False, src, True)
@@ -238,6 +288,19 @@ def main():
             with open(out_path, "wb") as f:
                 f.write(_encode(img))
             print("wrote {} ({}x{})".format(out_path, edge, edge))
+
+    # macOS bundle icon (.icns): dx declares CFBundleIconFile=icon.icns but
+    # never builds the file, so inject_macos_icon.py drops this into the .app's
+    # Contents/Resources after `dx bundle`.
+    icns_path = os.path.join(OUT_DIR, "app-icon.icns")
+    if args.check:
+        print("app-icon.icns: {}".format(
+            "up-to-date (present)" if os.path.exists(icns_path)
+            else "MISSING (run gen_icons.py on macOS)"))
+    elif build_macos_icns(ios_master, icns_path, Image):
+        print("wrote {} (macOS bundle icon)".format(icns_path))
+    else:
+        print("skip app-icon.icns (needs macOS + iconutil)")
 
     if not args.check:
         print("Next: desktop bundling uses [bundle] icon; iOS injection runs "

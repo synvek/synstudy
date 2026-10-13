@@ -1,4 +1,5 @@
 pub mod categories;
+pub mod consolidate;
 pub mod dictionary;
 pub mod mine;
 pub mod quiz;

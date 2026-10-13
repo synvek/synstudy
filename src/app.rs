@@ -142,6 +142,7 @@ fn AppShell() -> Element {
                     Page::Stats => rsx! { pages::stats::Stats {} },
                     Page::Settings => rsx! { pages::settings::SettingsPage {} },
                     Page::Mine => rsx! { pages::mine::Mine {} },
+                    Page::Consolidate => rsx! { pages::consolidate::Consolidate {} },
                 }
             }
             MobileTabBar {}

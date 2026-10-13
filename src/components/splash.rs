@@ -22,7 +22,7 @@ const SPLASH_LOGO: &[u8] = include_bytes!("../../assets/icons/splash-logo.png");
 pub fn Splash() -> Element {
     #[cfg(any(target_os = "ios", target_os = "android"))]
     {
-        let uri = format!("data:image/png;base64,{}", b64(SPLASH_LOGO));
+        let uri = crate::assets::png_data_uri(SPLASH_LOGO);
         rsx! {
             div { class: "splash",
                 img { class: "splash-logo", src: "{uri}", alt: "Synstudy" }
@@ -32,23 +32,4 @@ pub fn Splash() -> Element {
     }
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     rsx! {}
-}
-
-/// Minimal dependency-free standard base64 (with padding) encoder, used to
-/// inline the splash logo as a `data:` URI so it needs no asset serving.
-#[cfg(any(target_os = "ios", target_os = "android"))]
-fn b64(input: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
-    for chunk in input.chunks(3) {
-        let b0 = chunk[0];
-        let b1 = *chunk.get(1).unwrap_or(&0);
-        let b2 = *chunk.get(2).unwrap_or(&0);
-        let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | b2 as u32;
-        out.push(T[(n >> 18 & 63) as usize] as char);
-        out.push(T[(n >> 12 & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { T[(n >> 6 & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
-    }
-    out
 }

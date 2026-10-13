@@ -46,7 +46,7 @@ synstudy/
 ├── assets/
 │   ├── main.css              # 全局样式（构建时内联注入）
 │   ├── logo.svg              # 应用 Logo 源文件（内嵌 1024px PNG）
-│   ├── icons/                # 应用图标集 + splash-logo.png（由 scripts/gen_icons.py 生成）
+│   ├── icons/                # 应用图标集 + app-icon.icns(macOS) + splash-logo.png（由 scripts/gen_icons.py 生成）
 │   └── synstudy.db           # 构建产物：只读词典库（打包进应用）
 ├── data/                     # 源数据（git 忽略大文件）
 │   ├── ecdict.csv            # ECDICT 主词典（英汉）
@@ -61,8 +61,9 @@ synstudy/
 │   ├── fetch_data.sh         # 一键下载全部源数据（遵循 http(s)_proxy）
 │   ├── gen_sample_data.py    # 生成样例源数据（完全离线时的回退方案）
 │   ├── gen_notices.py        # 从 license/README.md 生成 THIRD-PARTY-NOTICES.txt
-│   ├── gen_icons.py          # 从 assets/logo.svg 提取并生成各平台应用图标
+│   ├── gen_icons.py          # 从 assets/logo.svg 提取并生成各平台应用图标（含 macOS .icns）
 │   ├── build_dict_db.py      # 数据管线：CSV + JSON -> assets/synstudy.db（构建末尾自动生成声明）
+│   ├── package_macos.sh      # macOS 打包：dx bundle + 注入品牌图标 icon.icns（dx 不自产图标）
 │   ├── package_ios.sh        # iOS 模拟器打包：构建 + 注入词典库 +（可选）simctl 安装启动
 │   ├── package_android.sh    # Android 打包：构建 + 注入 assets/ + noCompress 补丁 + gradlew 出 APK
 │   └── deploy_ios_device.sh  # iOS 真机部署：签名前注入词典 + codesign + devicectl 安装
@@ -199,9 +200,14 @@ bash scripts/package_ios.sh --no-build   # 向最近一次构建的 .app 补注�
 ```bash
 dx build --release          # 编译 release 二进制
 dx bundle --release         # 生成平台安装包（.app / .msi / .deb 等）
+bash scripts/package_macos.sh          # macOS：dx bundle + 注入品牌图标（icon.icns）
+bash scripts/package_macos.sh --debug  # debug 打包
+bash scripts/package_macos.sh --no-build  # 跳过构建，仅向已存在的 .app 注入图标
 ```
 
 桌面端 `dx bundle` 会自动把 `assets/`（词典库 + 第三方声明）作为 `[bundle] resources` 打进安装包，无需额外步骤。
+
+> 为什么 macOS 需要脚本：`dx` 0.8.0-alpha.1 **不会**为 `.app` 生成图标——`dx build` 只写 `CFBundleIconFile=icon.icns` 却不产出该文件，`dx bundle` 连 key 都不写，于是 Finder / Dock 退回通用占位图标。`package_macos.sh` 在打包后把 `scripts/gen_icons.py` 生成的 `assets/icons/app-icon.icns` 注入 `Contents/Resources` 并补全 `Info.plist`（见 `scripts/inject_macos_icon.py`）。运行期窗口 / Dock 图标由 `src/lib.rs` 在编译期 `include_bytes!` 内嵌 `app-icon-256.png`，改图后需重新构建生效。
 
 #### iOS 模拟器
 

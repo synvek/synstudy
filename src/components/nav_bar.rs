@@ -12,7 +12,9 @@ pub fn NavBar() -> Element {
     rsx! {
         nav { class: "navbar top",
             div { class: "brand",
-                span { class: "brand-mark", "S" }
+                // Branded logo (was a gradient badge with a literal "S"); see
+                // assets::brand_mark_uri.
+                img { class: "brand-mark", src: "{crate::assets::brand_mark_uri()}", alt: "Synstudy" }
                 span { class: "brand-name", "Synstudy" span { class: "brand-dot", "." } }
             }
             div { class: "nav-links",
@@ -35,44 +37,47 @@ pub fn NavBar() -> Element {
     }
 }
 
-/// The five primary destinations shown in the mobile bottom tab bar. The last
-/// one is the "我的" hub (`Page::Mine`), a card-list page that gathers the
-/// secondary links (replacing the old popup menu).
+/// The five primary destinations shown in the mobile bottom tab bar. `巩固`
+/// gathers the study-and-reinforce flows (生词本/背诵/测验/词根) behind a
+/// card-list hub; `我的` is the remaining personal hub.
 const TABS: [(Page, &str, &str); 5] = [
     (Page::Dictionary, "词典", "book"),
     (Page::Categories, "词库", "layers"),
     (Page::Study, "学习", "cap"),
-    (Page::Wordbook, "生词本", "heart"),
+    (Page::Consolidate, "巩固", "heart"),
     (Page::Mine, "我的", "user"),
 ];
 
-/// Secondary destinations grouped under the "我的" hub. Kept here so the tab
-/// bar can stay lit while any of them is open.
-const MORE_PAGES: [(Page, &str); 5] = [
+/// Pages grouped under the "巩固" hub. Kept here so the tab stays lit while any
+/// of them is open.
+const CONSOLIDATE_PAGES: [(Page, &str); 4] = [
+    (Page::Wordbook, "生词本"),
     (Page::Review, "背诵"),
     (Page::Quiz, "测验"),
     (Page::Roots, "词根"),
-    (Page::Stats, "统计"),
-    (Page::Settings, "设置"),
 ];
+
+/// Pages grouped under the "我的" hub; same tab-lit purpose.
+const MINE_PAGES: [(Page, &str); 2] = [(Page::Stats, "统计"), (Page::Settings, "设置")];
 
 /// Fixed bottom tab bar shown on narrow viewports (see the mobile media query).
 #[component]
 pub fn MobileTabBar() -> Element {
     let mut page: Signal<Page> = use_context();
     let current = page();
-    // "我的" lights up while it or any of its secondary pages is open.
-    let mine_active = MORE_PAGES.iter().any(|(p, _)| *p == current);
+    // Each hub tab lights up while it or any of its grouped pages is open.
+    let consolidate_active = CONSOLIDATE_PAGES.iter().any(|(p, _)| *p == current);
+    let mine_active = MINE_PAGES.iter().any(|(p, _)| *p == current);
 
     rsx! {
         div { class: "mobile-tabbar",
             nav { class: "mobile-tabbar-bar",
                 for (i, (tab, label, icon)) in TABS.iter().enumerate() {
                     {
-                        let active = if *tab == Page::Mine {
-                            current == Page::Mine || mine_active
-                        } else {
-                            current == *tab
+                        let active = match tab {
+                            Page::Consolidate => current == Page::Consolidate || consolidate_active,
+                            Page::Mine => current == Page::Mine || mine_active,
+                            _ => current == *tab,
                         };
                         let icon = icon.to_string();
                         let label = label.to_string();

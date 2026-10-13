@@ -496,7 +496,7 @@ fn AboutOverlay(
                 AboutTab::Info => rsx! {
                     div { class: "about-card",
                         div { class: "about-app",
-                            div { class: "about-logo", "S" }
+                            img { class: "about-logo", src: "{crate::assets::brand_mark_uri()}", alt: "Synstudy" }
                             div { class: "about-title",
                                 h2 { "Synstudy" }
                                 p { class: "muted", "版本 {version} · 英语学习词典" }

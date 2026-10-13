@@ -8,6 +8,7 @@
 //! main` at link time. iOS likewise links the `[[bin]]`'s `main` from `main.m`.
 
 mod app;
+mod assets;
 mod components;
 mod db;
 mod models;

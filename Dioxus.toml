@@ -15,11 +15,13 @@ asset_dir = "assets"
 identifier = "com.synvek.synstudy"
 publisher = "synvek"
 version = "0.1.0"
-# App icon source (1024px PNG, generated from assets/logo.svg by
-# scripts/gen_icons.py). dx derives the macOS .icns and Windows .ico from this
-# at bundle time. NOTE: dx 0.8.0-alpha.1 ignores this field on iOS/Android --
-# those are patched by scripts/inject_ios_icon.py (CFBundleIconFiles) and
-# package_android.sh (mipmap override), both run inside the package scripts.
+# App icon source (1024px PNG, the branded master generated from
+# assets/logo.svg by scripts/gen_icons.py). NOTE: dx 0.8.0-alpha.1 does NOT
+# bundle a usable icon on any platform -- macOS writes/omits CFBundleIconFile
+# but never produces the .icns; iOS and Android ignore this field entirely.
+# All three are patched post-build by scripts/inject_macos_icon.py (icon.icns),
+# scripts/inject_ios_icon.py (CFBundleIconFiles) and package_android.sh (mipmap
+# override), each run inside its package_*.sh script.
 icon = ["assets/icons/app-icon.png"]
 # Files copied into the platform's bundle resource directory.
 # Paths are relative to the crate root.

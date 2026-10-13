@@ -17,6 +17,8 @@ pub enum Page {
     Settings,
     /// Mobile-only "我的" hub: a card list of the secondary destinations.
     Mine,
+    /// Mobile-only "巩固" hub: a card list gathering 生词本/背诵/测验/词根.
+    Consolidate,
 }
 
 impl Page {
@@ -32,6 +34,7 @@ impl Page {
             Page::Stats => "统计",
             Page::Settings => "设置",
             Page::Mine => "我的",
+            Page::Consolidate => "巩固",
         }
     }
 

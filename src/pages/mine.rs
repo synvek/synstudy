@@ -11,26 +11,10 @@ struct MineLink {
     desc: &'static str,
 }
 
-/// Secondary destinations, grouped like a typical app "我的" screen.
-const LINKS: [MineLink; 5] = [
-    MineLink {
-        page: Page::Review,
-        icon: "\u{1f501}",
-        title: "背诵",
-        desc: "按记忆曲线复习已学单词",
-    },
-    MineLink {
-        page: Page::Quiz,
-        icon: "\u{270f}\u{fe0f}",
-        title: "测验",
-        desc: "拼写 / 选词填空 / 听音辨词",
-    },
-    MineLink {
-        page: Page::Roots,
-        icon: "\u{1f331}",
-        title: "词根",
-        desc: "词根词缀串联扩展词汇",
-    },
+/// Secondary destinations on the "我的" screen. The study-and-reinforce flows
+/// (生词本/背诵/测验/词根) now live under the "巩固" tab, so only the personal
+/// entries remain here.
+const LINKS: [MineLink; 2] = [
     MineLink {
         page: Page::Stats,
         icon: "\u{1f4ca}",
@@ -56,7 +40,7 @@ pub fn Mine() -> Element {
     rsx! {
         div { class: "page mine",
             div { class: "mine-head",
-                div { class: "mine-avatar", "s" }
+                img { class: "mine-avatar", src: "{crate::assets::brand_mark_uri()}", alt: "Synstudy" }
                 div { class: "mine-id",
                     h1 { "我的学习" }
                     span { class: "muted", "Synstudy · 英语学习词典" }
