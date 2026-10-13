@@ -2,7 +2,7 @@
 
 一个使用 **Rust + Dioxus** 构建的**纯客户端、离线优先**桌面英语学习工具（macOS / Windows / Linux）。
 
-内置**英汉 / 汉英双向词典**与**分级词库**（初中 / 高中 / 四级 / 六级 / 考研 / 托福 / 雅思 / GRE 开箱即用；小学 / 专四 / 专八 需自备官方大纲词表选装构建），支持**学习模式**与基于**间隔重复（SRS）**的**背诵 / 复习模式**，并记录本地学习进度与统计。
+内置**英汉 / 汉英双向词典**与**分级词库**（初中 / 高中 / 四级 / 六级 / 考研 / 托福 / 雅思 / GRE 开箱即用；小学 / 专四 / 专八 等需自备官方大纲词表选装构建），支持**学习模式**与基于**间隔重复（SRS）**的**背诵 / 复习模式**，并记录本地学习进度与统计。
 
 > 词典数据经一次性构建脚本预处理为**只读 SQLite**，随应用打包；用户学习进度写入本地**可写 SQLite**（应用数据目录）。**无后端、无网络依赖**。
 
@@ -207,8 +207,6 @@ bash scripts/package_macos.sh --no-build  # 跳过构建，仅向已存在的 .a
 
 桌面端 `dx bundle` 会自动把 `assets/`（词典库 + 第三方声明）作为 `[bundle] resources` 打进安装包，无需额外步骤。
 
-> 为什么 macOS 需要脚本：`dx` 0.8.0-alpha.1 **不会**为 `.app` 生成图标——`dx build` 只写 `CFBundleIconFile=icon.icns` 却不产出该文件，`dx bundle` 连 key 都不写，于是 Finder / Dock 退回通用占位图标。`package_macos.sh` 在打包后把 `scripts/gen_icons.py` 生成的 `assets/icons/app-icon.icns` 注入 `Contents/Resources` 并补全 `Info.plist`（见 `scripts/inject_macos_icon.py`）。运行期窗口 / Dock 图标由 `src/lib.rs` 在编译期 `include_bytes!` 内嵌 `app-icon-256.png`，改图后需重新构建生效。
-
 #### iOS 模拟器
 
 ```bash
@@ -217,8 +215,6 @@ bash scripts/package_ios.sh --release       # release 构建
 bash scripts/package_ios.sh --install       # 打包后安装并启动到已 booted 的模拟器
 bash scripts/package_ios.sh --no-build      # 跳过构建，仅向已存在的 .app 注入
 ```
-
-> 为什么需要脚本：`dx build --platform ios` **不会**打包 `[bundle] resources`（只有桌面端会），235MB 词典库必须在构建后拷入 `.app` 根目录（即 `Bundle.main.resourceURL`，运行时 `src/platform/ios.rs` 的查找位置）。脚本同时完成该注入与 `simctl` 安装。模拟器包免签名，注入即生效。
 
 #### iOS 真机
 
@@ -241,8 +237,6 @@ bash scripts/package_android.sh --install    # 出包后 adb install -r 到已�
 bash scripts/package_android.sh --release    # release（需在 build.gradle.kts 自行配置 signingConfig）
 bash scripts/package_android.sh --no-build   # 跳过 dx build，仅注入 + gradlew 打包
 ```
-
-> 为什么需要脚本：`dx build --platform android` 每次都会**重新生成整个 Gradle 工程**，手动改过的 assets 与构建配置会被覆盖，且与 iOS 一样不打包词典库。脚本在构建后：把 `synstudy.db` 重注入 `app/src/main/assets/`；幂等地给 `app/build.gradle.kts` 补上 `androidResources { noCompress += "db" }`（运行时 `AAssetManager` 需按长度流式拷贝词典到 filesDir，必须未压缩存储）；最后 `./gradlew assemble<Profile>` 出 APK（`dx build` 内部那次 gradle 发生在注入**之前**，产物不含词典，必须重跑）。
 
 前置条件：Android SDK（`ANDROID_HOME`）+ NDK、JDK、Rust 目标（`rustup target add aarch64-linux-android`）。
 
@@ -300,16 +294,6 @@ cargo test                  # SRS 排期算法单元测试
 - **CEFR-J**（`github.com/openlanguageprofiles/olp-en-cefrj`，**免费商用须引用**；C1/C2 部分 **CC BY-SA 4.0**）：`words.cefr` 的 A1–C2 等级来源，版权归东京外国语大学户田研；使用时须正确引用数据集（详见 `license/CEFR-J-NOTICE.txt`）。
 - **小学 / 专四 / 专八词表**：原数据源 **qwerty-learner**（GPL-3.0 传染风险）与 **kajweb/dict**（无开源许可证）相关数据已**全部移除**，项目不再下载、构建或分发其内容。如需这三个分类，自行整理官方大纲词表放入 `data/dicts/`；释义与音标一律由 MIT 许可的 ECDICT 提供。
 - 本仓库默认生成的 `data/` 样例数据仅用于离线试用，非官方词表。
-
----
-
-## 路线图（MVP 之后）
-
-- **倒序学习**：已实现（设置页「倒序学习」开关，学习模式按 `order_index` 反向取词）；后续可扩展到复习队列排序。
-- **词根背单词**：接入 ECDICT `wordroot.txt`，新增 `word_roots` 表与按词根聚合的学习视图。
-- **发音 / TTS**：接入系统 TTS 或在线音频（ECDICT `audio` 字段预留）。
-- **拼写 / 听写测验**、**生词本**、**错词本强化复习**。
-- **Web / 移动端目标**：数据层与 UI 已平台无关，后续加 `web`/`mobile` feature，词典库改为静态资源加载，进度库改用平台存储（Web 用 IndexedDB 封装）。
 
 ---
 
