@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::components::nav_bar::{MobileTabBar, NavBar};
+use crate::components::splash::Splash;
 use crate::db::{self, dict_repo::DictRepo, progress_repo::ProgressRepo};
 use crate::models::Category;
 use crate::pages;
@@ -83,6 +84,8 @@ pub fn App() -> Element {
         }
         document::Style { "{CSS}" }
         AppShell {}
+        // Mobile-only startup splash; renders nothing on desktop (see Splash).
+        {Splash()}
     }
 }
 

@@ -2,6 +2,7 @@ pub mod category_tile;
 pub mod heatmap;
 pub mod nav_bar;
 pub mod progress_bar;
+pub mod splash;
 pub mod streak_card;
 pub mod word_card;
 pub mod word_detail;

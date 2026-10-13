@@ -46,7 +46,7 @@ synstudy/
 ├── assets/
 │   ├── main.css              # 全局样式（构建时内联注入）
 │   ├── logo.svg              # 应用 Logo 源文件（内嵌 1024px PNG）
-│   ├── icons/                # 应用图标集（由 scripts/gen_icons.py 生成）
+│   ├── icons/                # 应用图标集 + splash-logo.png（由 scripts/gen_icons.py 生成）
 │   └── synstudy.db           # 构建产物：只读词典库（打包进应用）
 ├── data/                     # 源数据（git 忽略大文件）
 │   ├── ecdict.csv            # ECDICT 主词典（英汉）
@@ -76,7 +76,7 @@ synstudy/
     │   ├── mod.rs            # 词典库路径解析 + 进度库路径
     │   ├── dict_repo.rs      # 只读词典库查询
     │   └── progress_repo.rs  # 可写进度库（建表 / 迁移 / 读写）
-    ├── components/           # NavBar / WordCard / WordDetail / ProgressBar / CategoryTile
+    ├── components/           # NavBar / WordCard / WordDetail / ProgressBar / CategoryTile / Splash（移动端启动画面）
     └── pages/                # dictionary / categories / study / review / stats / settings
 ```
 

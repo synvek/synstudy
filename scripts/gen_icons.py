@@ -10,7 +10,9 @@ paths ignore the field entirely (verified: no xcassets/actool code in the CLI
 source), so scripts/inject_ios_icon.py and package_android.sh patch the
 built .app / Gradle res folder from the sets generated here. The 256 png is
 embedded into the desktop binary at compile time (include_bytes!) for the
-runtime window/taskbar icon.
+runtime window/taskbar icon, and splash-logo.png (mark cropped to its alpha
+bbox, transparent) is embedded by src/components/splash.rs for the mobile
+in-app startup splash.
 
 Usage:
   python3 scripts/gen_icons.py            # regenerate from assets/logo.svg
@@ -64,12 +66,38 @@ ANDROID_SIZES = {
 IOS_BG_TOP = (13, 15, 26)     # #0d0f1a
 IOS_BG_BOTTOM = (43, 48, 74)  # #2b304a
 IOS_MARK_RATIO = 0.62
-# The logo's white swoosh reads as two stray white patches once the canvas is
-# no longer white; refill near-white mark pixels with the brand purple gradient
-# (by row) so the ribbon stays solid but keeps its 3D shading elsewhere.
-IOS_FILL_TOP = (129, 140, 248)   # #818cf8
-IOS_FILL_BOTTOM = (109, 40, 217)  # #6d28d9
-IOS_WHITE_MIN = 215  # per-channel: >= this counts as "near white"
+# The logo's white swoosh reads as two stray white patches once placed on a
+# coloured background. Knock it out to TRANSPARENCY (not recolouring): alpha
+# fades to 0 as a pixel's minimum channel rises toward white. The purple ribbon
+# always has a low channel (min <= ~130) and the white swoosh a high one
+# (min >= ~240), so feathering between these bounds removes the swoosh AND the
+# soft-grey shadow / anti-aliased halo a single hard threshold left behind.
+WHITE_OPAQUE_BELOW = 135       # min(r,g,b) <= this: fully opaque
+WHITE_TRANSPARENT_ABOVE = 200  # >= this: fully transparent; between: feathered
+
+
+def punch_white_to_alpha(mark):
+    """Fade near-white pixels' alpha to 0 (feathered) in an RGBA image, in place.
+
+    Only the alpha channel is touched -- surviving pixels keep their original
+    colour, so this removes the white patches without recolouring anything.
+    """
+    px = mark.load()
+    w, h = mark.size
+    span = float(WHITE_TRANSPARENT_ABOVE - WHITE_OPAQUE_BELOW)
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if a == 0:
+                continue
+            m = min(r, g, b)
+            if m <= WHITE_OPAQUE_BELOW:
+                continue
+            t = (WHITE_TRANSPARENT_ABOVE - m) / span
+            if t < 0:
+                t = 0.0
+            px[x, y] = (r, g, b, int(a * t))
+    return mark
 
 
 def build_ios_master(src, Image):
@@ -82,25 +110,18 @@ def build_ios_master(src, Image):
         bbox = (0, 0, src.size[0], src.size[1])
     mark = src.crop(bbox)
 
-    # Refill the white swoosh with purple (see IOS_FILL_* note above).
-    px = mark.load()
-    h = mark.size[1]
-    for y in range(h):
-        t = y / max(1, h - 1)
-        fill = tuple(int(a + (b - a) * t)
-                     for a, b in zip(IOS_FILL_TOP, IOS_FILL_BOTTOM))
-        for x in range(mark.size[0]):
-            r, g, b, a = px[x, y]
-            if a > 0 and min(r, g, b) >= IOS_WHITE_MIN:
-                px[x, y] = fill + (a,)
-
     edge = src.size[0]  # square canvas
     target = int(edge * IOS_MARK_RATIO)
     scale = target / max(mark.size)
     mark = mark.resize((max(1, int(mark.size[0] * scale)),
                         max(1, int(mark.size[1] * scale))), Image.LANCZOS)
+    # Knock out the white swoosh AFTER scaling so the resized anti-aliased edge
+    # is swept up too.
+    punch_white_to_alpha(mark)
 
-    # Vertical gradient canvas, then center the mark (slight optical drop).
+    # Vertical gradient canvas, then center the mark (slight optical drop). The
+    # knocked-out swoosh lets the gradient show through, so the icon stays
+    # opaque (iOS icons forbid alpha) with no white patches.
     strip = Image.new("RGB", (1, edge))
     for y in range(edge):
         t = y / (edge - 1)
@@ -110,6 +131,29 @@ def build_ios_master(src, Image):
     ox = (edge - mark.size[0]) // 2
     oy = (edge - mark.size[1]) // 2 + int(edge * 0.02)
     canvas.paste(mark.convert("RGB"), (ox, oy), mark.getchannel("A"))
+    return canvas
+
+
+# In-app splash foreground: the logo mark cropped tight to its alpha bbox with
+# the white swoosh knocked out to transparency (so the splash's CSS gradient
+# shows through the cut-out). See build_splash_logo.
+SPLASH_LOGO_EDGE = 512
+
+
+def build_splash_logo(src, Image):
+    """Return the logo mark (white swoosh transparent) on a transparent canvas."""
+    if src.mode != "RGBA":
+        src = src.convert("RGBA")
+    bbox = src.getchannel("A").getbbox()
+    mark = src.crop(bbox) if bbox else src
+    scale = SPLASH_LOGO_EDGE / max(mark.size)
+    mark = mark.resize((max(1, int(mark.size[0] * scale)),
+                        max(1, int(mark.size[1] * scale))), Image.LANCZOS)
+    punch_white_to_alpha(mark)
+    canvas = Image.new("RGBA", (SPLASH_LOGO_EDGE, SPLASH_LOGO_EDGE), (0, 0, 0, 0))
+    ox = (SPLASH_LOGO_EDGE - mark.size[0]) // 2
+    oy = (SPLASH_LOGO_EDGE - mark.size[1]) // 2
+    canvas.paste(mark, (ox, oy), mark)
     return canvas
 
 
@@ -143,6 +187,7 @@ def main():
 
     os.makedirs(OUT_DIR, exist_ok=True)
     ios_master = build_ios_master(src, Image)
+    splash_logo = build_splash_logo(src, Image)
     jobs = [(OUT_DIR, name, edge, False, src) for name, edge in SIZES.items()]
     jobs += [(os.path.join(OUT_DIR, "ios"), n, e, True, ios_master)
              for n, e in IOS_SIZES.items()]
@@ -157,6 +202,15 @@ def main():
         with open(master_path, "wb") as f:
             f.write(_encode(ios_master))
         print("wrote {} (master, {}x{})".format(master_path, *ios_master.size))
+    # Splash foreground consumed by src/components/splash.rs (include_bytes!).
+    splash_path = os.path.join(OUT_DIR, "splash-logo.png")
+    if args.check:
+        ok = open(splash_path, "rb").read() == _encode(splash_logo)
+        print("splash-logo.png: {}".format("up-to-date" if ok else "STALE"))
+    else:
+        with open(splash_path, "wb") as f:
+            f.write(_encode(splash_logo))
+        print("wrote {} (splash logo, {}x{})".format(splash_path, *splash_logo.size))
     for out_dir, name, edge, flatten, base in jobs:
         out_path = os.path.join(out_dir, name)
         img = base if edge == base.size else base.resize((edge, edge), Image.LANCZOS)
