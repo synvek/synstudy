@@ -51,5 +51,19 @@ pub fn run() {
         );
     }
     #[cfg(any(target_os = "ios", target_os = "android"))]
-    dioxus::launch(app::App);
+    {
+        // Kill the startup white flash. The in-app splash
+        // (components/splash.rs) only paints on the *first Dioxus frame*, but
+        // the WKWebView/Android WebView shows its own native canvas from the
+        // moment the view is created — white by default — during the gap
+        // between process launch and that first frame. We seed the webview
+        // background with the splash's dark base (#0d0f1a, main.css `.splash`
+        // gradient top) so that pre-frame canvas is dark and the handoff into
+        // the splash is seamless. On iOS wry applies this to the container view
+        // at creation time, exactly to "prevent flashing when the page loads".
+        use dioxus::desktop::Config;
+        dioxus::LaunchBuilder::new()
+            .with_cfg(Config::new().with_background_color((13, 15, 26, 255)))
+            .launch(app::App);
+    }
 }
