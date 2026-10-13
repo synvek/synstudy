@@ -9,12 +9,9 @@
 | [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cc-cedict) | `zh_entries` 表：汉英词典（中文主键 / 拼音 / 繁体 / 英文释义） | CC-BY-SA 4.0 | [`CC-CEDICT-LICENSE.txt`](./CC-CEDICT-LICENSE.txt) |
 | [Wiktionary / kaikki.org](https://kaikki.org/dictionary/English/) | `examples` 表：分级词库词汇的自然例句；`word_relations` 表：近义词/反义词 | CC BY-SA 4.0 | [`Wiktionary-kaikki-LICENSE.txt`](./Wiktionary-kaikki-LICENSE.txt) |
 | [WordNet](https://wordnet.princeton.edu/) | `word_relations` 表：近义/反义词补充（synset 同集成员与 `!` 反义指针） | Princeton WordNet 许可（BSD 风格，可自由商用，保留声明即可） | [`WORDNET-LICENSE.txt`](./WORDNET-LICENSE.txt) |
-| [Tatoeba](https://tatoeba.org/) | `sentence_bank` / `sentence_words` 表：按考纲分级的例句（四/六/考研/专四/专八/托福/雅思/GRE） | CC-BY 2.0 FR | [`Tatoeba-LICENSE.txt`](./Tatoeba-LICENSE.txt) |
+| [Tatoeba](https://tatoeba.org/) | `sentence_bank` / `sentence_words` 表：按考纲分级的例句（四/六/考研/托福/雅思/GRE） | CC-BY 2.0 FR | [`Tatoeba-LICENSE.txt`](./Tatoeba-LICENSE.txt) |
 | [OpenCC](https://github.com/BYVoid/OpenCC) | 繁→简转换表：仅用于构建阶段将 `sentence_bank` 中文译文转为简体 | Apache-2.0 | [`OpenCC-LICENSE.txt`](./OpenCC-LICENSE.txt) |
 | [CEFR-J](https://github.com/openlanguageprofiles/olp-en-cefrj) | `words.cefr` 列：A1–C2 难度等级标注 | 免费商用**须引用**（C1/C2 部分 CC BY-SA 4.0） | [`CEFR-J-NOTICE.txt`](./CEFR-J-NOTICE.txt) |
-
-> 小学 / 专四 / 专八分级词表**不再随仓库提供**：原 qwerty-learner（GPL-3.0）与 kajweb/dict（无许可证）数据源已因合规原因移除。
-> 如需这三个分类，请自行整理**官方大纲词表**为 `data/dicts/{xiaoxue,tem4,tem8}.json` 后再构建；未提供时对应分类会被构建脚本自动跳过。
 
 ## 合规说明
 

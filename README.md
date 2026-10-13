@@ -2,7 +2,7 @@
 
 一个使用 **Rust + Dioxus** 构建的**纯客户端、离线优先**桌面英语学习工具（macOS / Windows / Linux）。
 
-内置**英汉 / 汉英双向词典**与**分级词库**（初中 / 高中 / 四级 / 六级 / 考研 / 托福 / 雅思 / GRE 开箱即用；小学 / 专四 / 专八 等需自备官方大纲词表选装构建），支持**学习模式**与基于**间隔重复（SRS）**的**背诵 / 复习模式**，并记录本地学习进度与统计。
+内置**英汉 / 汉英双向词典**与**分级词库**（初中 / 高中 / 四级 / 六级 / 考研 / 托福 / 雅思 / GRE 开箱即用；支持**学习模式**与基于**间隔重复（SRS）**的**背诵 / 复习模式**，并记录本地学习进度与统计。
 
 > 词典数据经一次性构建脚本预处理为**只读 SQLite**，随应用打包；用户学习进度写入本地**可写 SQLite**（应用数据目录）。**无后端、无网络依赖**。
 
@@ -14,8 +14,8 @@
 - **CEFR 难度标注**：基于 **CEFR-J** 词库档案为单词标注 A1–C2 等级，详情面板以徽章展示，可用于按难度筛选 / 分级学习。
 - ** Wiktionary 自然例句**：由 **kaikki.org** 从 Wiktionary 提取的真实例句，针对分级词库词汇入库（每词最多 3 句），在详情面板展示并附来源出处。
 - **近义 / 反义词**：`word_relations` 表双源构建——先由 **kaikki.org**（Wiktionary）抽取，再由 **Princeton WordNet 3.1** synset 成员与 `!` 反义指针补足剩余槽位（每词每类最多 5 条，Wiktionary 优先），在词详情面板以芯片展示并可点击跳转词典页。
-- **考试分级句库**（四/六/考研/专四/专八/托福/雅思/GRE）：从 **Tatoeba** 开放句库（CC-BY 2.0 FR）提取自然句，按 ECDICT 考纲标签自动打上 `exam_levels`，可选拼接 Tatoeba 自己的中↔英链接作为参考译文（并经 **OpenCC** 将繁体转为简体）。支持三种测验题型：**选词填空**（Cloze）、**句意选择**（中文释义四选一）、**听音辨词**（TTS + 四选一）。词详情面板同步展示考试句库例句。
-  - ⚠️ **不包含真题**：CET-4/6、TEM-4/8、TOEFL、IELTS、GRE 真题受版权保护，本项目**不分发也不爬取**任何真题内容；句库完全由开放语料构成，仅按考纲词汇标记级别。
+- **考试分级句库**（四/六/考研/托福/雅思/GRE）：从 **Tatoeba** 开放句库（CC-BY 2.0 FR）提取自然句，按 ECDICT 考纲标签自动打上 `exam_levels`，可选拼接 Tatoeba 自己的中↔英链接作为参考译文（并经 **OpenCC** 将繁体转为简体）。支持三种测验题型：**选词填空**（Cloze）、**句意选择**（中文释义四选一）、**听音辨词**（TTS + 四选一）。词详情面板同步展示考试句库例句。
+  - ⚠️ **不包含真题**：CET-4/6、TOEFL、IELTS、GRE 真题受版权保护，本项目**不分发也不爬取**任何真题内容；句库完全由开放语料构成，仅按考纲词汇标记级别。
 - **汉英词典查询**：基于 **CC-CEDICT**（真正以中文词为主键的汉英词典），支持**中文 / 拼音 / 繁体**检索，按「精确词条 → 前缀 → 子串」排序，覆盖成语、复合词与专有名词；详情面板可将英文释义**回链到英汉词典**（点击查看音标 / 词频 / 考试标签）。词典页顶部一键切换英汉 / 汉英方向。
 - **分级词库浏览**：默认 8 大分类（提供官方大纲词表后最多 11 类），显示词条数与学习进度百分比。
 - **学习模式**：按词库原始顺序逐词卡片学习，翻面查看释义，标记「认识 / 不认识」，进度实时持久化。
@@ -55,7 +55,7 @@ synstudy/
 │   ├── cefrj/*.csv           # CEFR-J 词库档案（A1-C2 等级标注）
 │   ├── wordnet/wordnet31/    # Princeton WordNet 3.1 dict 文件（近义/反义词补充，git 忽略）
 │   ├── wordroot.txt          # ECDICT 词根词缀（后期词根功能预留）
-│   └── dicts/*.json          # 分级词表（自备官方大纲词表：小学 / 专四 / 专八）
+│   └── dicts/*.json          # 分级词表
 ├── license/                  # 外部词典数据的许可证条款文本 + 合规说明
 ├── scripts/
 │   ├── fetch_data.sh         # 一键下载全部源数据（遵循 http(s)_proxy）
@@ -111,14 +111,12 @@ bash scripts/fetch_data.sh
 | `cedict.txt`（~10MB，12.5 万词条） | [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cc-cedict)（CC-BY-SA 4.0） | **汉英词典**：中文主键 + 拼音 + 繁体 + 英文释义 |
 | `kaikki.en.jsonl`（~3.3GB，构建时仅过滤分级词库） | [Wiktionary / kaikki.org](https://kaikki.org/dictionary/English/)（CC BY-SA 4.0） | **自然例句与近义/反义词**：提取分级词库词汇的例句入 `examples` 表、关系入 `word_relations` 表（同一遍流式扫描） |
 | `wordnet/wordnet31/`（~11MB，仅 dict 文件） | [Princeton WordNet 3.1](https://wordnet.princeton.edu/)（Princeton BSD 风格许可；经 NLTK wordnet31 镜像分发） | **近义/反义词补充**：synset 成员作近义、形容词 `!` 指针作反义，只填充 Wiktionary 未占用的槽位 |
-| `tatoeba/en_sentences.tsv.bz2`（~50MB）+ `cmn_sentences.tsv.bz2`（~10MB）+ `links.tsv`（~200MB） | [Tatoeba](https://tatoeba.org/)（CC-BY 2.0 FR） | **考试分级句库**：`sentence_bank` / `sentence_words` 表，按考纲词自动标记四/六/考研/专四/专八/托福/雅思/GRE |
+| `tatoeba/en_sentences.tsv.bz2`（~50MB）+ `cmn_sentences.tsv.bz2`（~10MB）+ `links.tsv`（~200MB） | [Tatoeba](https://tatoeba.org/)（CC-BY 2.0 FR） | **考试分级句库**：`sentence_bank` / `sentence_words` 表，按考纲词自动标记四/六/考研/托福/雅思/GRE |
 | `opencc/TSCharacters.txt`、`TSPhrases.txt`（~250KB） | [OpenCC](https://github.com/BYVoid/OpenCC)（Apache-2.0） | 构建阶段将 Tatoeba 中文译文由**繁体转为简体**（仅存转换后文本，不入库映射表） |
 | `cefrj/*.csv`（~280KB） | [CEFR-J](https://github.com/openlanguageprofiles/olp-en-cefrj)（**须引用署名**，C1/C2 为 CC BY-SA 4.0） | **难度等级**：为 `words.cefr` 标注 A1–C2 |
 
 > 初中 / 高中 / 四级 / 六级 / 考研 / 托福 / 雅思 / GRE 直接由 ECDICT 的 `tag` 字段（`zk/gk/cet4/cet6/ky/toefl/ielts/gre`）生成，无需额外下载。
->
-> ⚠️ **小学 / 专四 / 专八词表不再自动下载**：原数据源 qwerty-learner（GPL-3.0 传染风险）与 kajweb/dict（无开源许可证）已因合规原因移除。如需这三个分类，请自行整理**官方大纲词表**为 `data/dicts/xiaoxue.json` / `tem4.json` / `tem8.json`（格式 `[{"name": "word", ...}]`，仅需 `name` 字段选词，释义一律取自 ECDICT）；未提供时对应分类会被构建脚本自动跳过。
->
+
 > 若不想下载 ~200MB 的 Tatoeba links 文件，可设 `SKIP_TATOEBA_LINKS=1` 后再跑 `fetch_data.sh`；句库仍会构建，仅不包含中文参考译文（不影响选词填空 / 听音辨词）。中文译文依赖 `data/opencc/` 的繁→简转换表；若缺失则译文保留原始字形（多为繁体）。
 
 **方式 B — 生成样例数据（完全离线 / 快速试用）**
@@ -292,11 +290,11 @@ cargo test                  # SRS 排期算法单元测试
 - **Tatoeba**（`tatoeba.org`，**CC-BY 2.0 FR**）：`sentence_bank` / `sentence_words` 表的分级例句与英中译文。句子版权归各自贡献者，使用时需署名并声明修改；本项目已在词详情与测验卡片标注来源，详见 [`license/Tatoeba-LICENSE.txt`](./license/Tatoeba-LICENSE.txt)。**不复制任何受版权保护的真题内容**，`exam_levels` 标签仅基于开放 ECDICT 考纲元数据自行推导。
 - **OpenCC**（`github.com/BYVoid/OpenCC`，**Apache-2.0**）：中文译文以繁体为主，构建时用其 `TSCharacters` / `TSPhrases` 映射表转为简体。映射表仅在构建阶段使用，不打包进数据库；详见 [`license/OpenCC-LICENSE.txt`](./license/OpenCC-LICENSE.txt)。
 - **CEFR-J**（`github.com/openlanguageprofiles/olp-en-cefrj`，**免费商用须引用**；C1/C2 部分 **CC BY-SA 4.0**）：`words.cefr` 的 A1–C2 等级来源，版权归东京外国语大学户田研；使用时须正确引用数据集（详见 `license/CEFR-J-NOTICE.txt`）。
-- **小学 / 专四 / 专八词表**：原数据源 **qwerty-learner**（GPL-3.0 传染风险）与 **kajweb/dict**（无开源许可证）相关数据已**全部移除**，项目不再下载、构建或分发其内容。如需这三个分类，自行整理官方大纲词表放入 `data/dicts/`；释义与音标一律由 MIT 许可的 ECDICT 提供。
+
 - 本仓库默认生成的 `data/` 样例数据仅用于离线试用，非官方词表。
 
 ---
 
 ## 许可
 
-代码部分可自由使用。词典数据遵循其各自来源的许可（英汉 ECDICT 为 MIT；汉英 CC-CEDICT 为 CC-BY-SA 4.0，其数据演绎须相同方式共享；Wiktionary/kaikki.org 例句与部分近义/反义词为 CC BY-SA 4.0；WordNet 3.1 关系补充为 Princeton BSD 风格许可；Tatoeba 句库为 CC-BY 2.0 FR；繁→简转换表 OpenCC 为 Apache-2.0；CEFR-J 等级免费商用但须引用署名，其 C1/C2 部分为 CC BY-SA 4.0）。原 qwerty-learner（GPL-3.0）与 kajweb/dict（无许可）词表已因合规原因移除，不再随项目分发。完整条款文本见 [`license/`](./license/) 目录。
+代码部分可在APACHE OR MIT下自由使用。词典数据遵循其各自来源的许可（英汉 ECDICT 为 MIT；汉英 CC-CEDICT 为 CC-BY-SA 4.0，其数据演绎须相同方式共享；Wiktionary/kaikki.org 例句与部分近义/反义词为 CC BY-SA 4.0；WordNet 3.1 关系补充为 Princeton BSD 风格许可；Tatoeba 句库为 CC-BY 2.0 FR；繁→简转换表 OpenCC 为 Apache-2.0；CEFR-J 等级免费商用但须引用署名，其 C1/C2 部分为 CC BY-SA 4.0）。完整条款文本见 [`license/`](./license/) 目录。
