@@ -502,20 +502,13 @@ fn AboutOverlay(
                                 p { class: "muted", "版本 {version} · 英语学习词典" }
                             }
                         }
-                        p { "使用 Rust + Dioxus 构建的纯客户端、离线优先英语词典与词汇学习工具：内置英汉 / 汉英双向词典与分级词库，支持学习、背诵（间隔重复 SRS）、测验、词根与生词本，所有进度仅保存在本地。" }
-                        div { class: "about-kv setting-row column",
-                            div { class: "kv", span { class: "k", "平台" } span { class: "v", "macOS / Windows / Linux 桌面端" } }
-                            div { class: "kv", span { class: "k", "技术栈" } span { class: "v", "Rust · Dioxus 0.8 · SQLite" } }
-                            div { class: "kv", span { class: "k", "收录单词" } span { class: "v", "{total_words}" } }
-                            div { class: "kv", span { class: "k", "词典数据库（只读）" } span { class: "v", "{dict_path}" } }
-                            div { class: "kv", span { class: "k", "进度数据库（本地可写）" } span { class: "v", "{progress_path}" } }
-                        }
+                        p { "离线优先英语词典与词汇学习工具：内置英汉 / 汉英双向词典与分级词库，支持学习、背诵（间隔重复 SRS）、测验、词根与生词本，所有进度仅保存在本地。" }
                     }
                 },
                 AboutTab::License => rsx! {
                     div { class: "about-card",
                         h3 { "软件许可" }
-                        p { "Synstudy 的源代码采用 MIT OR Apache-2.0 双许可，Copyright © 2026 yangxiongbo。你可以自由使用、修改与再分发，包括商业用途。" }
+                        p { "Synstudy 的源代码采用 MIT OR Apache-2.0 双许可，Copyright © 2026 Synvek。你可以自由使用、修改与再分发，包括商业用途。" }
                         h3 { "数据许可（分轨授权）" }
                         p { "打包的词典数据库收录了以下第三方开放数据，各自遵循原始许可证；数据许可与代码许可相互独立。" }
                         div { class: "about-srcs",
