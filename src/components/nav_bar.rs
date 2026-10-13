@@ -12,8 +12,8 @@ pub fn NavBar() -> Element {
     rsx! {
         nav { class: "navbar top",
             div { class: "brand",
-                span { class: "brand-mark", "s" }
-                span { class: "brand-name", "synstudy" span { class: "brand-dot", "." } }
+                span { class: "brand-mark", "S" }
+                span { class: "brand-name", "Synstudy" span { class: "brand-dot", "." } }
             }
             div { class: "nav-links",
                 for p in Page::nav_items().iter().copied() {

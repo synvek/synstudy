@@ -115,6 +115,24 @@ else
   echo "==> build.gradle.kts 已含 noCompress 配置，跳过补丁"
 fi
 
+# 4b) 替换启动器图标（dx alpha.1 不消费 [bundle] icon，工程里是默认 Dioxus 图）：
+# 用 gen_icons.py 生成的各密度 mipmap PNG 覆盖默认 webp，并删除 adaptive-icon
+# xml（其引用的默认前景/背景 drawable 一并失效），让桌面回退到我们的 legacy 图标。
+RES_DIR="${MODULE_DIR}/src/main/res"
+ICON_SRC_DIR="assets/icons/android"
+if [ -d "$ICON_SRC_DIR" ]; then
+  echo "==> 覆盖 mipmap 启动器图标 <- ${ICON_SRC_DIR}"
+  for d in "$ICON_SRC_DIR"/mipmap-*; do
+    dpi="$(basename "$d")"
+    mkdir -p "${RES_DIR}/${dpi}"
+    rm -f "${RES_DIR}/${dpi}"/ic_launcher.webp "${RES_DIR}/${dpi}"/ic_launcher.png
+    cp -f "$d/ic_launcher.png" "${RES_DIR}/${dpi}/ic_launcher.png"
+  done
+  rm -f "${RES_DIR}/mipmap-anydpi-v26/ic_launcher.xml"
+else
+  echo "⚠️  缺少 ${ICON_SRC_DIR}；先跑 python3 scripts/gen_icons.py（本次沿用默认图标）" >&2
+fi
+
 # 5) 用 Gradle 产出 APK（这一步才会把 assets 打进包里）。
 echo "==> ./gradlew $GRADLE_TASK"
 ( cd "$GRADLE_ROOT" && ./gradlew "$GRADLE_TASK" )

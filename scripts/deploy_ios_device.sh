@@ -121,6 +121,8 @@ echo "==> 目标 .app: $APP_DIR"
 echo "==> 注入词典库 ($(du -h "$DB_SRC" | cut -f1)) -> ${APP_DIR}/synstudy.db"
 run cp -f "$DB_SRC" "${APP_DIR}/synstudy.db"
 [ -f "$NOTICES_SRC" ] && run cp -f "$NOTICES_SRC" "${APP_DIR}/THIRD-PARTY-NOTICES.txt"
+# 3b) 注入应用图标（必须在 codesign 之前，同词典库逻辑）。
+run python3 scripts/inject_ios_icon.py "$APP_DIR"
 
 if [ "$DO_SIGN" -eq 0 ]; then
   echo "✅ 已按 --skip-sign 完成构建+注入，未签名/未安装: $APP_DIR"

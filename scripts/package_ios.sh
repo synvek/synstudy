@@ -103,6 +103,10 @@ if [ ! -f "${APP_DIR}/synstudy.db" ]; then
 fi
 echo "✅ 词典库已就位: ${APP_DIR}/synstudy.db"
 
+# 4b) 注入应用图标（dx alpha.1 的 iOS 链路不处理 [bundle] icon，模拟器会显示
+# 半透明占位图）：拷入 CFBundleIconFiles 传统图标集。
+python3 scripts/inject_ios_icon.py "$APP_DIR"
+
 # 6) 可选：安装并启动到 booted 模拟器。
 if [ "$DO_INSTALL" -eq 1 ]; then
   if ! xcrun simctl list devices booted | grep -q '(Booted)'; then

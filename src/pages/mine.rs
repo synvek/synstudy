@@ -59,7 +59,7 @@ pub fn Mine() -> Element {
                 div { class: "mine-avatar", "s" }
                 div { class: "mine-id",
                     h1 { "我的学习" }
-                    span { class: "muted", "synstudy · 离线英语学习" }
+                    span { class: "muted", "Synstudy · 英语学习词典" }
                 }
             }
 

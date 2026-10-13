@@ -496,10 +496,10 @@ fn AboutOverlay(
                 AboutTab::Info => rsx! {
                     div { class: "about-card",
                         div { class: "about-app",
-                            div { class: "about-logo", "s" }
+                            div { class: "about-logo", "S" }
                             div { class: "about-title",
-                                h2 { "synstudy" }
-                                p { class: "muted", "版本 {version} · 离线英语学习工具" }
+                                h2 { "Synstudy" }
+                                p { class: "muted", "版本 {version} · 英语学习词典" }
                             }
                         }
                         p { "使用 Rust + Dioxus 构建的纯客户端、离线优先英语词典与词汇学习工具：内置英汉 / 汉英双向词典与分级词库，支持学习、背诵（间隔重复 SRS）、测验、词根与生词本，所有进度仅保存在本地。" }
@@ -515,7 +515,7 @@ fn AboutOverlay(
                 AboutTab::License => rsx! {
                     div { class: "about-card",
                         h3 { "软件许可" }
-                        p { "synstudy 的源代码采用 MIT OR Apache-2.0 双许可，Copyright © 2026 yangxiongbo。你可以自由使用、修改与再分发，包括商业用途。" }
+                        p { "Synstudy 的源代码采用 MIT OR Apache-2.0 双许可，Copyright © 2026 yangxiongbo。你可以自由使用、修改与再分发，包括商业用途。" }
                         h3 { "数据许可（分轨授权）" }
                         p { "打包的词典数据库收录了以下第三方开放数据，各自遵循原始许可证；数据许可与代码许可相互独立。" }
                         div { class: "about-srcs",

@@ -36,9 +36,18 @@ pub fn run() {
         let window = WindowBuilder::new()
             .with_title("英语学习词典")
             .with_inner_size(LogicalSize::new(1180.0, 800.0));
+        // Runtime window / taskbar / Dock icon, embedded from the generated
+        // icon set (scripts/gen_icons.py) so `cargo run` shows it too, not
+        // just dx-bundled apps.
+        let mut config = Config::new().with_window(window);
+        if let Ok(icon) = dioxus::desktop::icon_from_memory::<dioxus::desktop::tao::window::Icon>(
+            include_bytes!("../assets/icons/app-icon-256.png"),
+        ) {
+            config = config.with_icon(icon);
+        }
         dioxus::desktop::launch::launch_virtual_dom(
             VirtualDom::new(app::App),
-            Config::new().with_window(window),
+            config,
         );
     }
     #[cfg(any(target_os = "ios", target_os = "android"))]

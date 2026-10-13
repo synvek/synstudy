@@ -45,6 +45,8 @@ synstudy/
 ├── Dioxus.toml               # 桌面窗口配置 + assets 资源目录
 ├── assets/
 │   ├── main.css              # 全局样式（构建时内联注入）
+│   ├── logo.svg              # 应用 Logo 源文件（内嵌 1024px PNG）
+│   ├── icons/                # 应用图标集（由 scripts/gen_icons.py 生成）
 │   └── synstudy.db           # 构建产物：只读词典库（打包进应用）
 ├── data/                     # 源数据（git 忽略大文件）
 │   ├── ecdict.csv            # ECDICT 主词典（英汉）
@@ -59,6 +61,7 @@ synstudy/
 │   ├── fetch_data.sh         # 一键下载全部源数据（遵循 http(s)_proxy）
 │   ├── gen_sample_data.py    # 生成样例源数据（完全离线时的回退方案）
 │   ├── gen_notices.py        # 从 license/README.md 生成 THIRD-PARTY-NOTICES.txt
+│   ├── gen_icons.py          # 从 assets/logo.svg 提取并生成各平台应用图标
 │   ├── build_dict_db.py      # 数据管线：CSV + JSON -> assets/synstudy.db（构建末尾自动生成声明）
 │   ├── package_ios.sh        # iOS 模拟器打包：构建 + 注入词典库 +（可选）simctl 安装启动
 │   ├── package_android.sh    # Android 打包：构建 + 注入 assets/ + noCompress 补丁 + gradlew 出 APK
