@@ -1,0 +1,232 @@
+name: Build desktop installers
+
+# 手动触发（workflow_dispatch）：一次生成分发 Windows / Linux / macOS 的桌面安装包，
+# 并按 Cargo.toml 里的版本号自动打 tag、发布到 GitHub Release。
+#
+# 设计要点
+# --------
+# * 词典库 assets/synstudy.db（240MB，已 gitignore）与 assets/THIRD-PARTY-NOTICES.txt 是
+#   dx bundle 必需的 [bundle] resources，但仓库不跟踪它们。它们由 fetch_data.sh +
+#   build_dict_db.py 现造，产物是与平台无关的 SQLite 文件——因此只在**一个 arm64 macOS
+#   job（macos-14）**里单独构建一次，其余三个平台 job 复用同一份产物（下载 artifact）。
+#   这样避免在每台 runner 上重复下载 ~3.5GB 源数据。
+# * 应用本体必须在各自 OS 上原生打包（dx 不做桌面跨平台编译）：Windows→.msi、
+#   Linux→.deb/.AppImage、macOS→.app（经 scripts/package_macos.sh 注入品牌图标）。
+# * 图标已提交进仓库（assets/icons/app-icon.icns 等），CI 无需再跑 gen_icons.py。
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "构建配置"
+        type: choice
+        required: true
+        default: release
+        options:
+          - release
+          - debug
+      publish_release:
+        description: "构建完成后自动创建 tag 并发布到 GitHub Release"
+        type: boolean
+        required: true
+        default: true
+      rebuild_dict:
+        description: "强制重新构建词典库（否=优先复用已缓存的 data/）"
+        type: boolean
+        required: true
+        default: false
+
+# 同一分支只保留最新一次运行，取消进行中的旧运行。
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # dioxus-cli 版本必须与 Cargo 里的 dioxus 依赖同为 0.8 线（见 Cargo.toml 说明）。
+  DX_VERSION: "0.8.0-alpha.1"
+
+jobs:
+  # ── 1) 词典库：仅在 arm64 macOS 上单独构建一次，产出跨平台可复用的 SQLite 文件 ──
+  dict:
+    name: 构建词典库 (macOS arm64)
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 缓存原始源数据目录 data/（kaikki ~3.1GB + tatoeba links ~200MB 等）。命中则跳过
+      # 重复下载；rebuild_dict 或数据脚本变更时失效。actions/cache 对超大目录可能失败，
+      # 失败仅退化为重新下载，不影响正确性。
+      - name: 缓存源数据 data/
+        id: data-cache
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: synstudy-data-${{ hashFiles('scripts/fetch_data.sh', 'scripts/build_dict_db.py') }}
+          restore-keys: |
+            synstudy-data-
+
+      - name: 下载源数据 (fetch_data.sh)
+        if: steps.data-cache.outputs.cache-hit != 'true' || inputs.rebuild_dict
+        run: bash scripts/fetch_data.sh
+
+      - name: 构建词典库 (build_dict_db.py)
+        run: python3 scripts/build_dict_db.py
+
+      - name: 校验产物
+        run: |
+          test -s assets/synstudy.db || { echo "❌ assets/synstudy.db 缺失"; exit 1; }
+          test -s assets/THIRD-PARTY-NOTICES.txt || echo "⚠️ 缺少第三方声明文件"
+          ls -lh assets/synstudy.db assets/THIRD-PARTY-NOTICES.txt
+
+      - name: 上传词典库 artifact（供各平台复用）
+        uses: actions/upload-artifact@v4
+        with:
+          name: synstudy-db
+          path: |
+            assets/synstudy.db
+            assets/THIRD-PARTY-NOTICES.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── 2) 应用安装包：三平台矩阵，各自原生打包，复用上面产出的词典库 ──
+  app:
+    name: 安装包 (${{ matrix.platform_id }})
+    needs: dict
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform_id: linux
+          - os: windows-latest
+            platform_id: windows
+          - os: macos-14
+            platform_id: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 cargo 依赖
+        uses: Swatinem/rust-cache@v2
+
+      # Linux：wry/dioxus-desktop 依赖 WebKitGTK 及一组系统库（与 Tauri 官方一致）。
+      - name: 安装 Linux 系统依赖
+        if: matrix.platform_id == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # dioxus-cli 需与 Cargo 的 dioxus 版本同为 0.8 线。cargo install 会编译，首次较慢；
+      # Swatinem/rust-cache 已缓存依赖图，重复运行会快不少。
+      - name: 安装 dioxus-cli
+        run: cargo install dioxus-cli --version ${{ env.DX_VERSION }} --locked
+
+      - name: 下载词典库 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: synstudy-db
+          path: .   # artifact 内含 assets/ 前缀，还原到 assets/
+
+      - name: 打包 (dx bundle)
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform_id }}" = "macos" ]; then
+            # macOS 走专用脚本：dx bundle + 注入品牌图标 icon.icns（dx 不自产图标）。
+            if [ "${{ inputs.build_type }}" = "release" ]; then
+              bash scripts/package_macos.sh --release
+            else
+              bash scripts/package_macos.sh --debug
+            fi
+          else
+            if [ "${{ inputs.build_type }}" = "release" ]; then
+              dx bundle --release
+            else
+              dx bundle
+            fi
+          fi
+
+      - name: 收集安装包
+        shell: bash
+        run: |
+          mkdir -p dist
+          DIR="target/dx/synstudy/bundle"
+          if [ ! -d "$DIR" ]; then
+            echo "❌ 未找到 bundle 目录：$DIR" >&2; find target/dx -maxdepth 4 || true; exit 1
+          fi
+          if [ "${{ matrix.platform_id }}" = "macos" ]; then
+            # .app 是目录，zip 成单个文件便于分发（已注入图标）。同时附带 dmg（若有）。
+            APP=$(find "$DIR" -name "*.app" -type d | head -1)
+            if [ -n "$APP" ]; then
+              ditto -c -k --sequesterRsrc "$APP" "dist/Synstudy-$(basename "$APP" .app).zip"
+            fi
+            find "$DIR" -name "*.dmg" -exec cp {} dist/ \; || true
+          else
+            find "$DIR" -type f \
+              \( -name "*.deb" -o -name "*.AppImage" -o -name "*.rpm" \
+                 -o -name "*.msi" -o -name "*.exe" \) -exec cp {} dist/ \;
+          fi
+          if [ -z "$(ls -A dist 2>/dev/null)" ]; then
+            echo "❌ 未收集到任何安装包，列出 bundle 目录内容：" >&2
+            find "$DIR" -maxdepth 3 || true
+            exit 1
+          fi
+          echo "==> 产物："; ls -lh dist
+
+      - name: 上传安装包 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.platform_id }}
+          path: dist
+          if-no-files-found: error
+
+  # ── 3) 发布：按 Cargo.toml 版本自动打 tag，创建 GitHub Release 并上传安装包 ──
+  release:
+    name: 发布到 GitHub Release
+    needs: app
+    if: inputs.publish_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write   # 需要创建 tag 与 Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 下载各平台安装包
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: dist
+          merge-multiple: true
+
+      - name: 创建 / 更新 Release 并上传
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+          TAG="v${VERSION}"
+          echo "==> Cargo.toml 版本：${VERSION}  tag：${TAG}"
+          ls -lh dist
+          # 已存在同 tag 的 Release 则复用，否则基于本次 commit 创建 tag + Release。
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --target "${{ github.sha }}" \
+              --title "Synstudy ${TAG}" \
+              --notes "自动构建（${{ inputs.build_type }}）：Windows / Linux / macOS 桌面安装包，内含完整词典数据库与第三方许可声明。"
+          fi
+          gh release upload "$TAG" dist/* --clobber
+          echo "==> 已发布：$TAG"
+          gh release view "$TAG"
