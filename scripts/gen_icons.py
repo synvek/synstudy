@@ -188,10 +188,15 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     ios_master = build_ios_master(src, Image)
     splash_logo = build_splash_logo(src, Image)
-    jobs = [(OUT_DIR, name, edge, False, src) for name, edge in SIZES.items()]
-    jobs += [(os.path.join(OUT_DIR, "ios"), n, e, True, ios_master)
+    # (out_dir, name, edge, flatten, base, punch). `punch` knocks the white
+    # swoosh out to transparency AFTER scaling to `edge`, so the Android
+    # launcher icons match the iOS/splash treatment (no white patches) while
+    # keeping the logo's original padded framing; punching post-resize also
+    # sweeps the downscaled anti-aliased edge instead of leaving a white halo.
+    jobs = [(OUT_DIR, name, edge, False, src, False) for name, edge in SIZES.items()]
+    jobs += [(os.path.join(OUT_DIR, "ios"), n, e, True, ios_master, False)
              for n, e in IOS_SIZES.items()]
-    jobs += [(os.path.join(OUT_DIR, "android"), n, e, False, src)
+    jobs += [(os.path.join(OUT_DIR, "android"), n, e, False, src, True)
              for n, e in ANDROID_SIZES.items()]
     # Persist the iOS master for eyeballing / debugging the icon pipeline.
     master_path = os.path.join(OUT_DIR, "app-icon-ios.png")
@@ -211,9 +216,13 @@ def main():
         with open(splash_path, "wb") as f:
             f.write(_encode(splash_logo))
         print("wrote {} (splash logo, {}x{})".format(splash_path, *splash_logo.size))
-    for out_dir, name, edge, flatten, base in jobs:
+    for out_dir, name, edge, flatten, base, punch in jobs:
         out_path = os.path.join(out_dir, name)
         img = base if edge == base.size else base.resize((edge, edge), Image.LANCZOS)
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
+        if punch:  # knock the white swoosh out to transparency (Android)
+            img = punch_white_to_alpha(img)
         if flatten and img.mode == "RGBA":  # legacy safety: iOS icons opaque
             flat = Image.new("RGB", img.size, (255, 255, 255))
             flat.paste(img, (0, 0), img)
