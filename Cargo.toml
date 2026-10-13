@@ -1,9 +1,11 @@
 [package]
 name = "synstudy"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 description = "Offline multi-platform English learning tool built with Dioxus"
 license = "MIT"
+repository = "https://github.com/synvek/synstudy"
+homepage = "https://github.com/synvek/synstudy"
 
 # Library target: consumed by the thin `synstudy` desktop binary AND directly
 # by iOS (as a staticlib linked into the Xcode app) and Android (as a cdylib
