@@ -145,10 +145,18 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.platform_id }}" = "macos" ]; then
-            # macOS 走专用脚本：dx bundle + 注入品牌图标 icon.icns（dx 不自产图标）。
             if [ "${{ inputs.build_type }}" = "release" ]; then
+              # 规避 dx 二次 strip 崩溃：dx 打包完成后会再调用工具链自带的
+              # rust-objcopy（<sysroot>/lib/rustlib/<host>/bin/rust-objcopy）做 --strip-all。
+              # GitHub macos-14 runner 上该 objcopy 动态链接 @rpath/libLLVM.dylib，而 runner
+              # 未附这个 dylib（且 dx 只设 LD_LIBRARY_PATH，被 macOS dyld 忽略）→ "Failed to
+              # strip binary"。这里删掉 [profile.release] 的 strip 使 dx 跳过 objcopy，改由
+              # 链接器（Xcode ld/strip，不依赖 libLLVM）通过 RUSTFLAGS 完成裁剪，产物仍精简。
+              sed -i.bak '/^strip = /d' Cargo.toml
+              export RUSTFLAGS="-C strip=symbols"
               bash scripts/package_macos.sh --release
             else
+              # debug：[profile.dev] 无 strip，dx 不会触发 objcopy，直接跑。
               bash scripts/package_macos.sh --debug
             fi
           else
