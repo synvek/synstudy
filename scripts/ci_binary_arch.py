@@ -35,7 +35,9 @@ def _macho_arch(cputype: int) -> str:
 
 def arch_of(path: str) -> str:
     with open(path, "rb") as fh:
-        head = fh.read(4096)
+        # 读足量：PE 的 e_lfanew 偶尔会指向 4096 以后（某些链接器/packer 布局），
+        # 缓冲不够就只能在偏移内取不到头 → 误报 unknown。
+        head = fh.read(1 << 16)
     if len(head) < 20:
         return "unknown"
 
@@ -68,7 +70,9 @@ def arch_of(path: str) -> str:
         return _ELF_MACHINE.get(machine, f"elf{machine}")
 
     # ── PE：DOS 头 0x3C 处是 e_lfanew，其后 'PE\0\0' + 2 字节 Machine ──
-    if magic == b"MZ":
+    # 注意必须比 head[:2]：magic 是 4 字节，早前写 `magic == b"MZ"` 永远不成立，
+    # 导致所有 Windows 产物都被判成 unknown（CI 里表现为与 od 解析器结论冲突）。
+    if head[:2] == b"MZ" and len(head) >= 0x40:
         pe_off = struct.unpack("<I", head[0x3C:0x40])[0]
         if pe_off + 6 <= len(head) and head[pe_off : pe_off + 4] == b"PE\x00\x00":
             machine = struct.unpack("<H", head[pe_off + 4 : pe_off + 6])[0]

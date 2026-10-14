@@ -151,7 +151,11 @@ PY="$(command -v python3 || command -v python || true)"
 if [ -n "$PY" ] && "$PY" -c 'pass' >/dev/null 2>&1; then
   # 末尾的 `|| true` 是必须的：否则赋值同样会在 pipefail 下静默触发 errexit。
   PY_ARCH="$("$PY" "$ARCH_PY_RUN" "$MAIN" 2>/dev/null | cut -f1 || true)"
-  if [ -n "$PY_ARCH" ] && [ "$PY_ARCH" != "$ARCH" ]; then
+  if [ -z "$PY_ARCH" ] || [ "$PY_ARCH" = "unknown" ]; then
+    # od 是主判据、已有成套单测；python 只是辅助，它“看不出来”不该拦住发布。
+    note "python 解析器未能判定，以 od 结论为准"
+  elif [ "$PY_ARCH" != "$ARCH" ]; then
+    # 两边给出**不同的确定**答案时必须拦：这一条已经帮我发现过两处 bug。
     fail "两种解析器结论不一致：od=${ARCH} python=${PY_ARCH}（${MAIN}）"
   fi
 fi
