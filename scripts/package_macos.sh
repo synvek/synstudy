@@ -12,9 +12,15 @@
 #
 # 用法
 # ----
-#   bash scripts/package_macos.sh            # release 打包 + 注入图标
-#   bash scripts/package_macos.sh --debug    # debug 打包
-#   bash scripts/package_macos.sh --no-build # 跳过 dx bundle，仅向已存在的 .app 注入
+#   bash scripts/package_macos.sh                        # release 打包 + 注入图标
+#   bash scripts/package_macos.sh --debug                # debug 打包
+#   bash scripts/package_macos.sh --no-build             # 跳过 dx bundle，仅向已存在的 .app 注入
+#   bash scripts/package_macos.sh --target x86_64-apple-darwin   # 跨架构打包（供 CI 出 Intel 包）
+#
+# --target 说明：dx 0.8.0-alpha.1 支持 `bundle --target <rustc 三元组>`，它会把该三元组
+# 转给 cargo（产物落 target/<triple>/release/），但 **bundle 输出目录只按 OS 归档**
+# （target/dx/synstudy/bundle/macos），因此同一台机器上先后打 arm64 与 x86_64 会互相覆盖。
+# CI 里每个架构用独立 runner/job，本脚本一次只打一个架构。
 #
 # 注意
 # ----
@@ -26,26 +32,33 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 PROFILE="release"
+TARGET=""
 DO_BUILD=1
 
 usage() {
   cat <<'EOF'
 用法: bash scripts/package_macos.sh [选项]
-  --release    构建 release 包（默认）
-  --debug      构建 debug 包
-  --no-build   跳过 dx bundle，仅向已存在的 .app 注入图标
-  -h, --help   显示本帮助
+  --release        构建 release 包（默认）
+  --debug          构建 debug 包
+  --target TRIPLE  指定 rustc 三元组（如 x86_64-apple-darwin），用于跨架构打包
+  --no-build       跳过 dx bundle，仅向已存在的 .app 注入图标
+  -h, --help       显示本帮助
 EOF
 }
 
-for arg in "$@"; do
-  case "$arg" in
+while [ $# -gt 0 ]; do
+  case "$1" in
     --release)  PROFILE="release" ;;
     --debug)    PROFILE="debug" ;;
+    --target)
+      shift
+      TARGET="${1:?--target 需要一个 rustc 三元组（例：x86_64-apple-darwin）}"
+      ;;
     --no-build) DO_BUILD=0 ;;
     -h|--help)  usage; exit 0 ;;
-    *) echo "未知参数: $arg" >&2; usage; exit 2 ;;
+    *) echo "未知参数: $1" >&2; usage; exit 2 ;;
   esac
+  shift
 done
 
 # dx bundle 产物目录（macOS 下多一层 bundle/macos/macos）。
@@ -55,6 +68,7 @@ BUNDLE_DIR="target/dx/synstudy/bundle/macos"
 if [ "$DO_BUILD" -eq 1 ]; then
   DX_ARGS=(bundle)
   [ "$PROFILE" = "release" ] && DX_ARGS+=(--release)
+  [ -n "$TARGET" ] && DX_ARGS+=(--target "$TARGET")
   echo "==> dx ${DX_ARGS[*]}"
   dx "${DX_ARGS[@]}"
 fi
@@ -62,7 +76,7 @@ fi
 # 2) 定位刚产出的 .app（取 bundle 目录下最新的）。
 APP_DIR="$(find "$BUNDLE_DIR" -name '*.app' -type d 2>/dev/null -exec stat -f '%m %N' {} + | sort -nr | head -1 | cut -d' ' -f2- || true)"
 if [ -z "$APP_DIR" ] || [ ! -d "$APP_DIR" ]; then
-  echo "❌ 未找到打包产物（目录: $BUNDLE_DIR）。先不带 --no-build 跑一次打包。" >&2
+  echo "❌ 未找到打包产物（目录: ${BUNDLE_DIR}）。先不带 --no-build 跑一次打包。" >&2
   exit 1
 fi
 

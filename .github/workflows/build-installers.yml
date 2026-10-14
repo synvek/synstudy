@@ -5,14 +5,30 @@ name: Build desktop installers
 #
 # 设计要点
 # --------
-# * 词典库 assets/synstudy.db（240MB，已 gitignore）与 assets/THIRD-PARTY-NOTICES.txt 是
-#   dx bundle 必需的 [bundle] resources，但仓库不跟踪它们。它们由 fetch_data.sh +
+# * 词典库 assets/synstudy.db（~240MB，已 gitignore）与 assets/THIRD-PARTY-NOTICES.txt 是
+#   dx bundle 需要的 [bundle] resources，但仓库不跟踪它们。二者由 fetch_data.sh +
 #   build_dict_db.py 现造，产物是与平台无关的 SQLite 文件——因此只在**一个 arm64 macOS
-#   job（macos-14）**里单独构建一次，其余三个平台 job 复用同一份产物（下载 artifact）。
-#   这样避免在每台 runner 上重复下载 ~3.5GB 源数据。
-# * 应用本体必须在各自 OS 上原生打包（dx 不做桌面跨平台编译）：Windows→.msi、
-#   Linux→.deb/.AppImage、macOS→.app（经 scripts/package_macos.sh 注入品牌图标）。
-# * 图标已提交进仓库（assets/icons/app-icon.icns 等），CI 无需再跑 gen_icons.py。
+#   job** 里单独构建一次，其余 job 复用同一份 artifact，避免每台 runner 重复下载 ~3.5GB
+#   源数据。
+#   ⚠️ dx 0.8.0-alpha.1 的 copy_resources 碰到缺失 resource 时**只 warn 不报错**
+#   （src/bundler/mod.rs:366-370），所以词典库没就位时打包仍然“成功”，产出几 MB 的空壳
+#   安装包（macOS 上真实发生过：.app.zip 3.91MB / .dmg 3.87MB）。因此每个 job 打包前
+#   断言 db 已就位，打包后用 scripts/ci_verify_artifacts.sh 校验「架构 + 已内嵌 db +
+#   体积下限」，不达标直接失败，绝不把空壳发布出去。
+# * 每个 OS 都出 x86_64 + aarch64 两套包（共 6 个 job）。dx 支持 `bundle --target <triple>`
+#   （会把该三元组传给 cargo，产物落 target/<triple>/<profile>/），但 bundle 产物目录只按
+#   OS 归档、不按 triple 分（target/dx/synstudy/bundle/<os>），**同一台机器上先后打两个架构
+#   会互相覆盖**，所以按架构拆成独立 job、各占一台 runner：
+#     linux-x64     ubuntu-24.04       原生
+#     linux-arm64   ubuntu-24.04-arm   原生（GitHub 官方托管 ARM Linux runner）
+#     win-x64       windows-latest     原生
+#     win-arm64     windows-11-arm     原生（GitHub 官方托管 ARM Windows runner）
+#     macos-arm64   macos-15           原生
+#     macos-x64     macos-15           交叉编译（macOS SDK 本身是 universal，链接无需 Intel 真机）
+#   产物形态：macOS→.app.zip + .dmg；Linux→.deb + .AppImage（显式指定 package types）；
+#   Windows→NSIS -setup.exe（dx 默认只产这一种，.msi 未启用）。
+#   （bundle 目录里的裸 exe 不是安装器、也不带词典库，不再混进 Release）。
+# * 图标已提交进仓库（assets/icons/app-icon.png|.icns），CI 无需再跑 gen_icons.py。
 
 on:
   workflow_dispatch:
@@ -52,7 +68,7 @@ jobs:
   # ── 1) 词典库：仅在 arm64 macOS 上单独构建一次，产出跨平台可复用的 SQLite 文件 ──
   dict:
     name: 构建词典库 (macOS arm64)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -83,6 +99,13 @@ jobs:
       - name: 校验产物
         run: |
           test -s assets/synstudy.db || { echo "❌ assets/synstudy.db 缺失"; exit 1; }
+          # 体积下限：完整词库约 240MB，低于此下限说明源数据不完整/构建被中途截断，
+          # 现在就失败，避免下游 6 个 job 白跑。
+          BYTES=$(wc -c < assets/synstudy.db | tr -d ' ')
+          if [ "$BYTES" -lt 100000000 ]; then
+            echo "❌ assets/synstudy.db 只有 ${BYTES} 字节（<100MB），疑似残缺" >&2
+            exit 1
+          fi
           test -s assets/THIRD-PARTY-NOTICES.txt || echo "⚠️ 缺少第三方声明文件"
           ls -lh assets/synstudy.db assets/THIRD-PARTY-NOTICES.txt
 
@@ -90,13 +113,18 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: synstudy-db
+          # root 显式设为仓库根：这样 artifact 内部固定为 assets/synstudy.db 这种带前缀的
+          # 路径，各 job 下载时 path: . 就能准确还原到 assets/（不依赖上传端的公共父目录
+          # 推断——一旦被抹平，resource 就会静默丢失）。
+          root: .
           path: |
             assets/synstudy.db
             assets/THIRD-PARTY-NOTICES.txt
           if-no-files-found: error
           retention-days: 1
 
-  # ── 2) 应用安装包：三平台矩阵，各自原生打包，复用上面产出的词典库 ──
+  # ── 2) 应用安装包：3 OS × x86_64/aarch64 = 6 个 job，各自用匹配架构的 runner 打包
+  #     （仅 macOS x86_64 是在 arm64 runner 上交叉编译），复用上面产出的词典库 ──
   app:
     name: 安装包 (${{ matrix.platform_id }})
     needs: dict
@@ -105,25 +133,53 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            platform_id: linux
-          - os: windows-latest
-            platform_id: windows
-          - os: macos-14
-            platform_id: macos
+          - platform_id: linux-x64
+            family: linux
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            arch: x86_64
+          - platform_id: linux-arm64
+            family: linux
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            arch: arm64
+          - platform_id: win-x64
+            family: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            arch: x86_64
+          - platform_id: win-arm64
+            family: windows
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            arch: arm64
+          - platform_id: macos-arm64
+            family: macos
+            os: macos-15
+            target: aarch64-apple-darwin
+            arch: arm64
+          - platform_id: macos-x64
+            family: macos
+            os: macos-15
+            target: x86_64-apple-darwin
+            arch: x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Rust 工具链
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # 跨架构打包需要该 triple 的 std（macOS x86_64 在 arm64 runner 上交叉编译）。
+          targets: ${{ matrix.target }}
 
       - name: 缓存 cargo 依赖
         uses: Swatinem/rust-cache@v2
 
       # Linux：wry/dioxus-desktop 依赖 WebKitGTK 及一组系统库（与 Tauri 官方一致）。
+      # arm64 runner 上 apt 直接装 arm64 版本，无需交叉。
       - name: 安装 Linux 系统依赖
-        if: matrix.platform_id == 'linux'
+        if: matrix.family == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -139,32 +195,69 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: synstudy-db
-          path: .   # artifact 内含 assets/ 前缀，还原到 assets/
+          path: .   # 与 dict job 的 root: . 对应，还原成 ./assets/synstudy.db
+
+      # 打包前的硬断言：dx 对缺失 resource 只打一条 `Resource not found` 警告就继续
+      # （bundler/mod.rs:366-370），一旦词典库没还原到 assets/，产出的是几 MB 的空壳包。
+      # 这里把这种静默退化提前变成失败。
+      - name: 断言词典库已就位
+        shell: bash
+        run: |
+          # 兜底：万一 artifact 被还原到仓库根（上传端 root 推断差异），搬回 assets/。
+          for f in synstudy.db THIRD-PARTY-NOTICES.txt; do
+            if [ ! -f "assets/$f" ] && [ -f "$f" ]; then
+              echo "==> 从仓库根移动 $f 到 assets/"
+              mv "$f" assets/
+            fi
+          done
+          if [ ! -s assets/synstudy.db ]; then
+            echo "❌ assets/synstudy.db 缺失或为空：继续打包只会产出空壳安装包" >&2
+            ls -l assets >&2 || true
+            exit 1
+          fi
+          ls -lh assets/synstudy.db assets/THIRD-PARTY-NOTICES.txt
 
       - name: 打包 (dx bundle)
         shell: bash
         run: |
-          if [ "${{ matrix.platform_id }}" = "macos" ]; then
+          # 清掉 rust-cache 可能还原的上一次 dx 暂存/打包目录：bundle 产物目录不按架构分，
+          # 留着旧产物会让“本次到底产出了什么”变得不可判定。
+          rm -rf target/dx
+
+          if [ "${{ matrix.family }}" = "macos" ]; then
+            # macOS 走专用脚本：dx bundle + 注入品牌图标 icon.icns（dx 不自产图标）。
             if [ "${{ inputs.build_type }}" = "release" ]; then
               # 规避 dx 二次 strip 崩溃：dx 打包完成后会再调用工具链自带的
               # rust-objcopy（<sysroot>/lib/rustlib/<host>/bin/rust-objcopy）做 --strip-all。
-              # GitHub macos-14 runner 上该 objcopy 动态链接 @rpath/libLLVM.dylib，而 runner
+              # GitHub macOS runner 上该 objcopy 动态链接 @rpath/libLLVM.dylib，而 runner
               # 未附这个 dylib（且 dx 只设 LD_LIBRARY_PATH，被 macOS dyld 忽略）→ "Failed to
               # strip binary"。这里删掉 [profile.release] 的 strip 使 dx 跳过 objcopy，改由
               # 链接器（Xcode ld/strip，不依赖 libLLVM）通过 RUSTFLAGS 完成裁剪，产物仍精简。
               sed -i.bak '/^strip = /d' Cargo.toml
               export RUSTFLAGS="-C strip=symbols"
-              bash scripts/package_macos.sh --release
+              bash scripts/package_macos.sh --release --target ${{ matrix.target }}
             else
               # debug：[profile.dev] 无 strip，dx 不会触发 objcopy，直接跑。
-              bash scripts/package_macos.sh --debug
+              bash scripts/package_macos.sh --debug --target ${{ matrix.target }}
             fi
           else
+            # --target 会把三元组传给 cargo（产物落 target/<triple>/<profile>/），dx 再据此
+            # 取主程序打包；arm64/x86_64 两个 job 各自用自己 runner 的原生工具链。
+            DX_ARGS=(bundle)
             if [ "${{ inputs.build_type }}" = "release" ]; then
-              dx bundle --release
-            else
-              dx bundle
+              DX_ARGS+=(--release)
             fi
+            DX_ARGS+=(--target "${{ matrix.target }}")
+            if [ "${{ matrix.family }}" = "linux" ]; then
+              # dx 默认只产 AppImage（cli/bundle.rs: default_package_types），这里显式补上
+              # .deb（apt/dpkg 安装更省事）。deb 由 dx 用 ar 存档在 Rust 里直接组装、不调
+              # dpkg-deb（bundler/linux.rs:129），所以 runner 无需额外工具、arm64 上同理可用。
+              # 注意 --package-types 每次只吃一个值（clap ArgAction::Append），写
+              # `--package-types appimage deb` 或逗号分隔都会报错，必须重复传 flag。
+              DX_ARGS+=(--package-types appimage --package-types deb)
+            fi
+            echo "==> dx ${DX_ARGS[*]}"
+            dx "${DX_ARGS[@]}"
           fi
 
       - name: 收集安装包
@@ -175,24 +268,39 @@ jobs:
           if [ ! -d "$DIR" ]; then
             echo "❌ 未找到 bundle 目录：$DIR" >&2; find target/dx -maxdepth 4 || true; exit 1
           fi
-          if [ "${{ matrix.platform_id }}" = "macos" ]; then
-            # .app 是目录，zip 成单个文件便于分发（已注入图标）。同时附带 dmg（若有）。
-            APP=$(find "$DIR" -name "*.app" -type d | head -1)
-            if [ -n "$APP" ]; then
-              ditto -c -k --sequesterRsrc "$APP" "dist/Synstudy-$(basename "$APP" .app).zip"
-            fi
-            find "$DIR" -name "*.dmg" -exec cp {} dist/ \; || true
-          else
-            find "$DIR" -type f \
-              \( -name "*.deb" -o -name "*.AppImage" -o -name "*.rpm" \
-                 -o -name "*.msi" -o -name "*.exe" \) -exec cp {} dist/ \;
-          fi
+          case "${{ matrix.family }}" in
+            macos)
+              # .app 是目录，zip 成单文件便于分发（已注入图标）；文件名带 platform_id，
+              # 避免两个架构的同名产物在 Release 里互相覆盖。同时附带 dx 产出的 .dmg。
+              APP=$(find "$DIR" -name "*.app" -type d | head -1)
+              if [ -n "$APP" ]; then
+                ditto -c -k --sequesterRsrc "$APP" "dist/Synstudy-${{ matrix.platform_id }}.zip"
+              fi
+              find "$DIR" -name "*.dmg" -exec cp {} dist/ \; || true
+              ;;
+            linux)
+              find "$DIR" -type f \
+                \( -name "*.deb" -o -name "*.AppImage" -o -name "*.rpm" \) -exec cp {} dist/ \;
+              ;;
+            windows)
+              # 只收真正的安装包：bundle 目录里还有个裸 synstudy.exe（不是安装器、不带词典
+              # 库），之前被一起发布到 Release 会让人误下，这里排除。
+              find "$DIR" -type f \( -name "*.msi" -o -name "*-setup.exe" \) -exec cp {} dist/ \;
+              ;;
+          esac
           if [ -z "$(ls -A dist 2>/dev/null)" ]; then
             echo "❌ 未收集到任何安装包，列出 bundle 目录内容：" >&2
             find "$DIR" -maxdepth 3 || true
             exit 1
           fi
           echo "==> 产物："; ls -lh dist
+
+      # 架构 / 词典库 / 体积三重校验：不达标就失败，避免把错架构或空壳包发布出去。
+      - name: 校验安装包（架构 + 词典库 + 体积）
+        shell: bash
+        run: |
+          bash scripts/ci_verify_artifacts.sh \
+            target/dx/synstudy/bundle dist "${{ matrix.arch }}" "${{ inputs.build_type }}"
 
       - name: 上传安装包 artifact
         uses: actions/upload-artifact@v4
@@ -233,7 +341,7 @@ jobs:
             gh release create "$TAG" \
               --target "${{ github.sha }}" \
               --title "Synstudy ${TAG}" \
-              --notes "自动构建（${{ inputs.build_type }}）：Windows / Linux / macOS 桌面安装包，内含完整词典数据库与第三方许可声明。"
+              --notes "自动构建（${{ inputs.build_type }}）：Windows / Linux / macOS 桌面安装包，各含 x86_64 与 aarch64 两套架构，包内已内嵌完整词典数据库与第三方许可声明（CI 已校验架构与词典库）。"
           fi
           gh release upload "$TAG" dist/* --clobber
           echo "==> 已发布：$TAG"

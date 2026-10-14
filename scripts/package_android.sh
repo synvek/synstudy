@@ -70,7 +70,7 @@ GRADLE_FILE="${MODULE_DIR}/build.gradle.kts"
 
 # 词典源文件必须存在。
 if [ ! -f "$DB_SRC" ]; then
-  echo "❌ 缺少词典库 $DB_SRC；先运行: python3 scripts/build_dict_db.py" >&2
+  echo "❌ 缺少词典库 ${DB_SRC}；先运行: python3 scripts/build_dict_db.py" >&2
   exit 1
 fi
 

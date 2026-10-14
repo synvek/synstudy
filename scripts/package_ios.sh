@@ -78,13 +78,13 @@ if [ ! -d "$APP_DIR" ]; then
   [ -n "$FOUND" ] && APP_DIR="$FOUND"
 fi
 if [ ! -d "$APP_DIR" ]; then
-  echo "❌ 未找到构建产物（目录: $IOS_DIR）。先不带 --no-build 跑一次构建。" >&2
+  echo "❌ 未找到构建产物（目录: ${IOS_DIR}）。先不带 --no-build 跑一次构建。" >&2
   exit 1
 fi
 
 # 3) 词典源文件必须存在。
 if [ ! -f "$DB_SRC" ]; then
-  echo "❌ 缺少词典库 $DB_SRC；先运行: python3 scripts/build_dict_db.py" >&2
+  echo "❌ 缺少词典库 ${DB_SRC}；先运行: python3 scripts/build_dict_db.py" >&2
   exit 1
 fi
 
