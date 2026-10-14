@@ -63,8 +63,21 @@ IOS_SIZES = {
     "Icon-76.png": 76, "Icon-76@2x.png": 152,
 }
 
-# Android launcher mipmaps (mdpi..xxxhdpi). package_android.sh copies these
-# over the Gradle project's default webp icons.
+# Android launcher icons (mdpi..xxxhdpi), copied over the Gradle project's
+# defaults by package_android.sh. We ship TWO sets because launchers read
+# different resources per API level:
+#  * legacy `ic_launcher.png` (API <26; our min_sdk=24 fallback) -- sourced from
+#    `ios_master`, i.e. a full-bleed OPAQUE plate. Using the raw transparent
+#    logo here is what made the icon look nothing like iOS: a launcher puts a
+#    WHITE PLATE behind a transparent legacy icon and shrinks a padded bitmap
+#    further, so you got "白底 + 图案偏小" at once.
+#  * adaptive layers (API 26+): `ic_launcher_background.png` +
+#    `ic_launcher_foreground.png` on a 108dp canvas, referenced by the
+#    `mipmap-anydpi-v26/ic_launcher.xml` that package_android.sh writes. This
+#    is what the launcher masks (circle/squircle/pill), so the mark has to sit
+#    inside the visible 72dp circle. The dx-generated project ships only the
+#    AS template's vector drawables and NO such xml, which is why the legacy
+#    path was always taken before.
 ANDROID_SIZES = {
     "mipmap-mdpi/ic_launcher.png": 48,
     "mipmap-hdpi/ic_launcher.png": 72,
@@ -73,12 +86,19 @@ ANDROID_SIZES = {
     "mipmap-xxxhdpi/ic_launcher.png": 192,
 }
 
+# Adaptive canvas is 108dp; per density that is this many px of edge.
+ANDROID_DENSITIES = {"mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 432}
+
 
 # iOS brand background gradient (near-black graphite): the mark is purple, so
 # any purple-ish backdrop blends into it — go dark for contrast.
 IOS_BG_TOP = (13, 15, 26)     # #0d0f1a
 IOS_BG_BOTTOM = (43, 48, 74)  # #2b304a
 IOS_MARK_RATIO = 0.62
+# Mark edge as a fraction of the ADAPTIVE canvas, for visual parity with iOS:
+# there the mark spans IOS_MARK_RATIO of the visible plate, and the adaptive
+# visible circle is 72dp of the 108dp canvas.
+ANDROID_FG_MARK_RATIO = IOS_MARK_RATIO * (72.0 / 108.0)  # ~0.413
 # The logo's white swoosh reads as two stray white patches once placed on a
 # coloured background. Knock it out to TRANSPARENCY (not recolouring): alpha
 # fades to 0 as a pixel's minimum channel rises toward white. The purple ribbon
@@ -170,6 +190,26 @@ def build_splash_logo(src, Image):
     return canvas
 
 
+def build_android_adaptive(master, mark_plate, edge, Image):
+    """Return (background, foreground) adaptive layers, each `edge` px square.
+
+    `master` is the opaque branded icon (its gradient becomes the background
+    layer); `mark_plate` is the tight, white-knocked-out mark that fills its
+    own canvas, so resizing it to ANDROID_FG_MARK_RATIO*edge puts the mark at
+    exactly the size iOS shows it. Two separate layers (instead of pasting the
+    branded plate into the foreground) means no seam where the plate edge would
+    cross the launcher mask.
+    """
+    bg = master.convert("RGBA").resize((edge, edge), Image.LANCZOS)
+    fg = Image.new("RGBA", (edge, edge), (0, 0, 0, 0))
+    plate = max(1, int(round(edge * ANDROID_FG_MARK_RATIO)))
+    mark = mark_plate.resize((plate, plate), Image.LANCZOS)
+    # Centered (no iOS's 2% optical drop: Android's mask is already generous and
+    # the adaptive spec asks for the keyline centre).
+    fg.paste(mark, ((edge - plate) // 2, (edge - plate) // 2), mark)
+    return bg, fg
+
+
 # macOS .icns iconset layout (filename -> pixel edge). iconutil folds these into
 # the multi-resolution icon the Finder/Dock read via CFBundleIconFile.
 MAC_ICONSET = [
@@ -236,17 +276,16 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     ios_master = build_ios_master(src, Image)
     splash_logo = build_splash_logo(src, Image)
-    # (out_dir, name, edge, flatten, base, punch). The desktop SIZES render from
-    # `ios_master` (branded, opaque) so the running-app icon matches the brand;
-    # `punch` knocks the white swoosh out to transparency AFTER scaling to
-    # `edge`, so the Android launcher icons match the iOS/splash treatment (no
-    # white patches) while keeping the logo's original padded framing; punching
-    # post-resize also sweeps the downscaled anti-aliased edge instead of
-    # leaving a white halo.
+    # (out_dir, name, edge, flatten, base, punch). Everything renders from
+    # `ios_master` (branded, opaque, mark at 62%) -- desktop, iOS and the
+    # Android legacy mipmaps alike -- so all platforms show the same brand. The
+    # Android adaptive layers below are the exception: their foreground must be
+    # TRANSPARENT, so they are built from `splash_logo` (the tight mark with the
+    # white swoosh already knocked out) over the master's gradient background.
     jobs = [(OUT_DIR, name, edge, False, ios_master, False) for name, edge in SIZES.items()]
     jobs += [(os.path.join(OUT_DIR, "ios"), n, e, True, ios_master, False)
              for n, e in IOS_SIZES.items()]
-    jobs += [(os.path.join(OUT_DIR, "android"), n, e, False, src, True)
+    jobs += [(os.path.join(OUT_DIR, "android"), n, e, False, ios_master, False)
              for n, e in ANDROID_SIZES.items()]
     # Persist the iOS master for eyeballing / debugging the icon pipeline.
     master_path = os.path.join(OUT_DIR, "app-icon-ios.png")
@@ -289,6 +328,22 @@ def main():
                 f.write(_encode(img))
             print("wrote {} ({}x{})".format(out_path, edge, edge))
 
+    # Android adaptive layers: package_android.sh wires these into the
+    # mipmap-anydpi-v26/ic_launcher.xml it writes (the dx template has none).
+    for dpi, edge in ANDROID_DENSITIES.items():
+        bg, fg = build_android_adaptive(ios_master, splash_logo, edge, Image)
+        for tag, img in (("ic_launcher_background", bg), ("ic_launcher_foreground", fg)):
+            rel = "mipmap-{}/{}.png".format(dpi, tag)
+            out_path = os.path.join(OUT_DIR, "android", rel)
+            if args.check:
+                ok = os.path.exists(out_path) and open(out_path, "rb").read() == _encode(img)
+                print("{}: {}x{} {}".format(rel, edge, edge, "up-to-date" if ok else "STALE"))
+            else:
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                with open(out_path, "wb") as f:
+                    f.write(_encode(img))
+                print("wrote {} ({}x{})".format(out_path, edge, edge))
+
     # macOS bundle icon (.icns): dx declares CFBundleIconFile=icon.icns but
     # never builds the file, so inject_macos_icon.py drops this into the .app's
     # Contents/Resources after `dx bundle`.
@@ -304,7 +359,8 @@ def main():
 
     if not args.check:
         print("Next: desktop bundling uses [bundle] icon; iOS injection runs "
-              "scripts/inject_ios_icon.py, Android mipmaps are copied by "
+              "scripts/inject_ios_icon.py, Android legacy mipmaps + adaptive "
+              "layers are copied and wired into ic_launcher.xml by "
               "package_android.sh (dx alpha.1 ignores bundle.icon on mobile).")
 
 

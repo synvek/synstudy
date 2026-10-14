@@ -74,8 +74,26 @@ if [ ! -f "$DB_SRC" ]; then
   exit 1
 fi
 
+# 上一次运行由我们注入的图标文件（路径相对 res 目录），用于构建前清扫。
+strip_injected_icons() {
+  local res="${MODULE_DIR}/src/main/res"
+  [ -d "$res" ] || return 0
+  rm -f "$res"/mipmap-*/ic_launcher.png \
+        "$res"/mipmap-*/ic_launcher_background.png \
+        "$res"/mipmap-*/ic_launcher_foreground.png \
+        "$res"/mipmap-anydpi-v26/ic_launcher.xml
+  return 0
+}
+
 # 1) 生成/刷新 Gradle 工程（不带 --no-build 时）。
 if [ "$DO_BUILD" -eq 1 ]; then
+  # 必须先清掉我们上次注入的图标：dx 会用模板重新写回 ic_launcher.webp，却不会删
+  # 我们留下的 ic_launcher.png，同名不同扩展落在同一个 mipmap 目录里是 AGP 的
+  # 「Duplicate resources」硬错误。而 dx build 自己就会跑一次 gradle assemble，
+  # 于是脚本还没走到注入环节就挂了（表现：Bundling app... Failed to assemble apk）。
+  # 只在第二次及以后的全量构建触发，所以首次能跑通不代表安全。
+  echo "==> 清理上次注入的图标文件（避开 dx 模板 webp 的 Duplicate resources）"
+  strip_injected_icons
   DX_ARGS=(build --platform android)
   [ "$PROFILE" = "release" ] && DX_ARGS+=(--release)
   echo "==> dx ${DX_ARGS[*]}"
@@ -115,20 +133,49 @@ else
   echo "==> build.gradle.kts 已含 noCompress 配置，跳过补丁"
 fi
 
-# 4b) 替换启动器图标（dx alpha.1 不消费 [bundle] icon，工程里是默认 Dioxus 图）：
-# 用 gen_icons.py 生成的各密度 mipmap PNG 覆盖默认 webp，并删除 adaptive-icon
-# xml（其引用的默认前景/背景 drawable 一并失效），让桌面回退到我们的 legacy 图标。
+# 4b) 替换启动器图标（dx alpha.1 不消费 [bundle] icon，工程里是默认 Dioxus 图）。
+# 两套图层都要覆盖，因为启动器按 API level 读不同资源：
+#   * legacy mipmap（API <26，也是 min_sdk=24 的兜底）：现在图源是 app-icon-ios.png
+#     那张满幅不透明的 master。之前用透明 logo，启动器会在透明区补一块**白色
+#     底板**、再把大片留白的位图额外内缩一次——正是「白底 + 图案偏小」的成因。
+#   * adaptive 图层（API 26+）：108dp 画布的 background + foreground，由下面写出的
+#     mipmap-anydpi-v26/ic_launcher.xml 引用，启动器按圆形/胶囊/方形遮罩裁它。
+#     dx 生成的工程里只有 AS 模板的两个 vector drawable、**没有这份 xml**，所以
+#     系统一直退回 legacy 分支（旧脚本还会主动删掉它）。
 RES_DIR="${MODULE_DIR}/src/main/res"
 ICON_SRC_DIR="assets/icons/android"
 if [ -d "$ICON_SRC_DIR" ]; then
-  echo "==> 覆盖 mipmap 启动器图标 <- ${ICON_SRC_DIR}"
+  echo "==> 覆盖启动器图标（legacy mipmap + adaptive 图层）<- ${ICON_SRC_DIR}"
+  ADAPTIVE_OK=1
   for d in "$ICON_SRC_DIR"/mipmap-*; do
     dpi="$(basename "$d")"
     mkdir -p "${RES_DIR}/${dpi}"
-    rm -f "${RES_DIR}/${dpi}"/ic_launcher.webp "${RES_DIR}/${dpi}"/ic_launcher.png
-    cp -f "$d/ic_launcher.png" "${RES_DIR}/${dpi}/ic_launcher.png"
+    for f in ic_launcher.png ic_launcher_background.png ic_launcher_foreground.png; do
+      [ -f "$d/$f" ] || continue
+      # 默认图是 webp（ic_launcher.webp），连同旧的 png 一起清掉再放我们的。
+      # 删 webp 是必须的：与同名 png 共存就是上面那个 Duplicate resources。
+      rm -f "${RES_DIR}/${dpi}/${f%.png}.webp" "${RES_DIR}/${dpi}/${f}"
+      cp -f "$d/$f" "${RES_DIR}/${dpi}/${f}"
+    done
+    for f in ic_launcher_background.png ic_launcher_foreground.png; do
+      [ -f "$d/$f" ] || ADAPTIVE_OK=0
+    done
   done
-  rm -f "${RES_DIR}/mipmap-anydpi-v26/ic_launcher.xml"
+  if [ "$ADAPTIVE_OK" -eq 1 ]; then
+    mkdir -p "${RES_DIR}/mipmap-anydpi-v26"
+    cat > "${RES_DIR}/mipmap-anydpi-v26/ic_launcher.xml" <<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>
+XML
+    echo "==> 已写出 mipmap-anydpi-v26/ic_launcher.xml（adaptive 图标）"
+  else
+    # 只有旧版 gen_icons.py 产出物的情况：不写 xml，免得 aapt 找不到被引用的图层。
+    echo "⚠️  缺少 adaptive 图层；请重跑 python3 scripts/gen_icons.py（本次仅 legacy）" >&2
+    rm -f "${RES_DIR}/mipmap-anydpi-v26/ic_launcher.xml"
+  fi
 else
   echo "⚠️  缺少 ${ICON_SRC_DIR}；先跑 python3 scripts/gen_icons.py（本次沿用默认图标）" >&2
 fi
