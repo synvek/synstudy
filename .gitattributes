@@ -1,0 +1,29 @@
+# 行尾与二进制策略（配合 GitHub Actions 的 Windows runner）
+#
+# 背景：Windows 上如果 git 的 core.autocrlf 为 true，checkout 会把 LF 转成 CRLF。
+# 对本仓库有两类实际危害：
+#   1) *.sh 变成 CRLF 后，bash 会在第一行 `set -euo pipefail` 就报
+#      "set: pipefail: invalid option name"（\r 被当成选项的一部分），脚本一行输出
+#      都没有就直接退出 1 —— CI 里表现为「校验步骤无声失败」。
+#   2) 图标等二进制文件被插入 \r 会直接损坏（仓库里跟踪了 21 个 png + 1 个 icns）。
+# 这里显式声明，避免依赖 runner 的全局 git 配置。
+
+*.sh  text eol=lf
+*.py  text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.rs  text eol=lf
+*.css text eol=lf
+*.md  text eol=lf
+*.txt text eol=lf
+
+# 二进制一律不做行尾转换
+*.png  binary
+*.icns binary
+*.ico  binary
+*.svg  text eol=lf
+*.db   binary
+*.gz   binary
+*.zst  binary
+*.woff binary
+*.woff2 binary

@@ -299,8 +299,20 @@ jobs:
       - name: 校验安装包（架构 + 词典库 + 体积）
         shell: bash
         run: |
+          # 先去 CR：Windows runner 上若 git 的 core.autocrlf 为 true，checkout 出的 .sh
+          # 会带 CRLF，bash 在第一行 `set -euo pipefail` 就报错（\r 被当成选项的一部分），
+          # 且几乎没有输出——表现为「校验步骤无声失败」。仓库已补 .gitattributes 兜底，
+          # 这里再显式归一化，保证这类失败不会重现（tr 在三端 runner 上都有）。
+          for f in scripts/ci_verify_artifacts.sh scripts/ci_binary_arch.py; do
+            if [ -f "$f" ]; then
+              tr -d '\r' < "$f" > "$f.lf" && mv "$f.lf" "$f"
+            fi
+          done
+          # 第 1 个参数是「搜索根」：必须传 target/dx/synstudy 而不是 bundle/ 子目录。
+          # Linux/Windows 的资源先被暂存到 <profile>/<os>/assets/，bundle/<os> 里只有
+          # .deb / .AppImage / *-setup.exe 这些最终归档，只搜 bundle/ 会误报“没带词库”。
           bash scripts/ci_verify_artifacts.sh \
-            target/dx/synstudy/bundle dist "${{ matrix.arch }}" "${{ inputs.build_type }}"
+            target/dx/synstudy dist "${{ matrix.arch }}" "${{ inputs.build_type }}"
 
       - name: 上传安装包 artifact
         uses: actions/upload-artifact@v4

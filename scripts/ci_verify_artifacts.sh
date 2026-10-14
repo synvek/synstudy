@@ -13,15 +13,21 @@
 #
 # 用法
 # ----
-#   bash scripts/ci_verify_artifacts.sh <bundle_dir> <dist_dir> <期望架构> [build_type]
+#   bash scripts/ci_verify_artifacts.sh <dx_root> <dist_dir> <期望架构> [build_type]
+#     dx_root：搜索根，**必须传 target/dx/synstudy**（而不是它的 bundle/ 子目录）。
+#       因为 Linux/Windows 的资源不在 bundle 目录里：bundle/<os> 只有最终归档
+#       （.deb / .AppImage / *-setup.exe），db 会先被暂存到
+#       target/dx/synstudy/<profile>/<os>/assets/ 再打进归档。
 #     期望架构：x86_64 | arm64（universal 也算通过）
 #     build_type：release（默认，做全部校验）| debug（只校验架构，debug 不保证内嵌 db）
 #
 # 示例（本地）：
-#   bash scripts/ci_verify_artifacts.sh target/dx/synstudy/bundle dist arm64 release
+#   bash scripts/ci_verify_artifacts.sh target/dx/synstudy dist arm64 release
 set -euo pipefail
 
-BUNDLE_DIR="${1:?用法: ci_verify_artifacts.sh <bundle_dir> <dist_dir> <期望架构> [build_type]}"
+echo "==> ci_verify_artifacts.sh 已加载（host: $(uname -s)）"
+
+DX_ROOT="${1:?用法: ci_verify_artifacts.sh <dx_root> <dist_dir> <期望架构> [build_type]}"
 DIST_DIR="${2:?缺少 <dist_dir>}"
 EXPECT_ARCH="${3:?缺少 <期望架构>（x86_64|arm64）}"
 BUILD_TYPE="${4:-release}"
@@ -36,28 +42,28 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ARCH_PY="$ROOT/scripts/ci_binary_arch.py"
 PY="$(command -v python3 || command -v python || true)"
 [ -n "$PY" ] || fail "需要 python3 或 python 来解析可执行文件头"
-[ -d "$BUNDLE_DIR" ] || fail "bundle 目录不存在：$BUNDLE_DIR"
+[ -d "$DX_ROOT" ] || fail "dx 目录不存在：$DX_ROOT"
 [ -d "$DIST_DIR" ] || fail "dist 目录不存在：$DIST_DIR"
 
 # ── 1) 主程序架构 ──────────────────────────────────────────────────────────────
-# 各平台裸可执行文件在 bundle 树里的位置不同，按 host 类型定位（CI 的 runner 与
+# 各平台裸可执行文件在 dx 树里的位置不同，按 host 类型定位（CI 的 runner 与
 # 目标 OS 一致；macOS 的 x86_64 包是交叉编译产物，host 仍是 darwin）。
 case "$(uname -s)" in
   Darwin)
-    MAIN="$(find "$BUNDLE_DIR" -type f -path '*/Contents/MacOS/*' | head -1 || true)"
+    MAIN="$(find "$DX_ROOT" -type f -path '*/Contents/MacOS/*' | head -1 || true)"
     ;;
   Linux)
-    MAIN="$(find "$BUNDLE_DIR" -type f -name 'synstudy' | head -1 || true)"
+    MAIN="$(find "$DX_ROOT" -type f -name 'synstudy' | head -1 || true)"
     ;;
   *)
     # Windows（Git Bash：MINGW*/MSYS*）：只取裸 exe，安装包名带 -setup/ .msi 不会命中。
-    MAIN="$(find "$BUNDLE_DIR" -type f -name 'synstudy.exe' | head -1 || true)"
+    MAIN="$(find "$DX_ROOT" -type f -name 'synstudy.exe' | head -1 || true)"
     ;;
 esac
 
 if [ -z "$MAIN" ] || [ ! -f "$MAIN" ]; then
-  echo "❌ 在 $BUNDLE_DIR 找不到主可执行文件，目录结构：" >&2
-  find "$BUNDLE_DIR" -maxdepth 4 >&2 || true
+  echo "❌ 在 $DX_ROOT 找不到主可执行文件，目录结构：" >&2
+  find "$DX_ROOT" -maxdepth 4 >&2 || true
   exit 1
 fi
 
@@ -70,24 +76,43 @@ if [ "$ARCH" != "$EXPECT_ARCH" ] && [ "$ARCH" != "universal" ]; then
 fi
 echo "✅ 架构匹配：$ARCH  <- $(basename "$MAIN")"
 
-# ── 2) 词典库与第三方声明必须打进产物 ─────────────────────────────────────────
+# ── 2) 词典库必须进包─────────────────────────────────────────────────────────
+# 取证分三档，拿到任一正向证据即认为已内嵌；全部拿不到时也不直接失败，而是由
+# 第 3 步的体积下限兜底（空壳包的特征就是几 MB，远低于下限）：
+#   a) 磁盘上的 loose 文件：macOS 在 .app/Contents/Resources 下；Linux/Windows 则在
+#      暂存目录 target/dx/synstudy/<profile>/<os>/assets/ 里（bundle/<os> 只有归档）。
+#   b) 直接列包内清单：.deb 用 dpkg-deb -c（dx 的 deb 是自己用 ar 拼的，资源落在
+#      ./usr/lib/<pkg>/…，见 bundler/linux.rs:129；dpkg 在 Ubuntu runner 上自带）。
+#   c) AppImage 是 squashfs、NSIS 是自定义容器，CI 里不便枚举 → 只能降级到体积下限。
 if [ "$BUILD_TYPE" = "release" ]; then
-  DB="$(find "$BUNDLE_DIR" -type f -name 'synstudy.db' | head -1 || true)"
-  if [ -z "$DB" ]; then
-    echo "❌ bundle 里没有 synstudy.db —— dx 对缺失 resource 只 warn 不报错，" >&2
-    echo "   这样产出的安装包是空壳（打开即无词库）。检查 [bundle] resources 与" >&2
-    echo "   assets/synstudy.db 是否在打包前就位。" >&2
-    find "$BUNDLE_DIR" -maxdepth 4 -type f | head -40 >&2 || true
-    exit 1
-  fi
-  DB_BYTES="$(wc -c < "$DB" | tr -d ' ')"
-  if [ "$DB_BYTES" -lt 50000000 ]; then
-    fail "bundle 里的 synstudy.db 只有 ${DB_BYTES} 字节（<50MB），疑似残缺：$DB"
-  fi
-  echo "✅ 词典库已内嵌：$(basename "$DB") $((DB_BYTES / 1024 / 1024))MB"
-  note "路径：${DB#*bundle/}"
+  DB_EVIDENCE=""
 
-  if find "$BUNDLE_DIR" -type f -name 'THIRD-PARTY-NOTICES.txt' | grep -q .; then
+  DB="$(find "$DX_ROOT" -type f -name 'synstudy.db' | head -1 || true)"
+  if [ -n "$DB" ] && [ -f "$DB" ]; then
+    DB_BYTES="$(wc -c < "$DB" | tr -d ' ')"
+    if [ "$DB_BYTES" -lt 50000000 ]; then
+      fail "找到 synstudy.db 但只有 ${DB_BYTES} 字节（<50MB），疑似残缺：$DB"
+    fi
+    DB_EVIDENCE="loose 文件 ${DB#$DX_ROOT/}（$((DB_BYTES / 1024 / 1024))MB）"
+  fi
+
+  if [ -z "$DB_EVIDENCE" ] && command -v dpkg-deb >/dev/null 2>&1; then
+    for deb in "$DIST_DIR"/*.deb; do
+      [ -f "$deb" ] || continue
+      if dpkg-deb -c "$deb" 2>/dev/null | grep -q 'synstudy\.db$'; then
+        DB_EVIDENCE="包内清单 $(basename "$deb") 已含 synstudy.db"
+        break
+      fi
+    done
+  fi
+
+  if [ -n "$DB_EVIDENCE" ]; then
+    echo "✅ 词典库已内嵌：$DB_EVIDENCE"
+  else
+    echo "⚠️ 未能直接取证 synstudy.db（归档容器不便枚举），改由体积下限把关"
+  fi
+
+  if find "$DX_ROOT" -type f -name 'THIRD-PARTY-NOTICES.txt' | grep -q .; then
     echo "✅ 第三方声明已内嵌"
   else
     echo "⚠️ 未找到 THIRD-PARTY-NOTICES.txt（合规提示缺失，不阻断）"
