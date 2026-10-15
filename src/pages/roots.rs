@@ -26,6 +26,7 @@ pub fn Roots() -> Element {
                 r.root_key.to_lowercase().contains(&f)
                     || r.meaning.to_lowercase().contains(&f)
                     || r.class.to_lowercase().contains(&f)
+                    || r.note.to_lowercase().contains(&f)
             })
             .cloned()
             .collect()
@@ -130,22 +131,25 @@ pub fn Roots() -> Element {
                                 div { class: "root-head",
                                     h2 { class: "root-key", "{r.root_key}" }
                                     if !r.class.is_empty() {
-                                        span { class: "chip", "{r.class}" }
+                                        span { class: "chip", "{r.class_label()}" }
+                                    }
+                                    if !r.origin.is_empty() {
+                                        span { class: "chip", "{r.origin_label()}" }
                                     }
                                 }
                                 div { class: "wd-sec",
                                     h4 { "含义" }
                                     p { class: "root-meaning", "{r.meaning}" }
                                 }
-                                if !r.origin.is_empty() {
-                                    div { class: "wd-row",
-                                        span { class: "wd-k", "来源" }
-                                        span { class: "wd-v", "{r.origin}" }
+                                if !r.note.is_empty() {
+                                    div { class: "wd-sec",
+                                        h4 { "用法讲解" }
+                                        p { class: "root-note", "{r.note}" }
                                     }
                                 }
                                 if !r.synonyms.is_empty() {
                                     div { class: "wd-row",
-                                        span { class: "wd-k", "近义" }
+                                        span { class: "wd-k", "同义" }
                                         span { class: "wd-v", "{r.synonyms}" }
                                     }
                                 }
@@ -158,18 +162,28 @@ pub fn Roots() -> Element {
                                 div { class: "wd-sec",
                                     h4 { "相关单词（{words.len()}）" }
                                     if words.is_empty() {
-                                        p { class: "muted", "该词根暂无已收录的关联单词。" }
+                                        if !r.examples.is_empty() {
+                                            p { class: "root-examples muted", "源示例词：{r.examples}" }
+                                        } else {
+                                            p { class: "muted", "该词根暂无已收录的关联单词。" }
+                                        }
                                     } else {
-                                        div { class: "wd-links",
+                                        div { class: "root-words",
                                             for w in words.iter() {
                                                 button {
                                                     key: "{w.id}",
-                                                    class: if sel_word_id == Some(w.id) { "chip chip-link active" } else { "chip chip-link" },
+                                                    class: if sel_word_id == Some(w.id) { "root-word-item active" } else { "root-word-item" },
                                                     onclick: {
                                                         let w = w.clone();
                                                         move |_| sel_word.set(Some(w.clone()))
                                                     },
-                                                    "{w.word}"
+                                                    span { class: "rw-word", "{w.word}" }
+                                                    span {
+                                                        class: "rw-gloss muted",
+                                                        // First gloss line of the ECDICT translation keeps the row scannable;
+                                                        // the full definition opens below on click.
+                                                        { w.translation.lines().next().unwrap_or("").to_string() }
+                                                    }
                                                 }
                                             }
                                         }

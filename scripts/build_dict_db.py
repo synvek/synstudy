@@ -145,7 +145,9 @@ CREATE TABLE word_roots (
     meaning  TEXT DEFAULT '',
     origin   TEXT DEFAULT '',
     synonyms TEXT DEFAULT '',
-    antonyms TEXT DEFAULT ''
+    antonyms TEXT DEFAULT '',
+    note     TEXT DEFAULT '',
+    examples TEXT DEFAULT ''
 );
 
 CREATE TABLE root_words (
@@ -397,13 +399,31 @@ def _as_text(v):
     return str(v).strip() if v is not None else ""
 
 
+def _fix_affix_spacing(note, key):
+    """Re-insert spaces lost by the source's HTML stripping.
+
+    In wordroot.txt the `function` text glues an affix to the following
+    lowercase word (e.g. "-lessattaches", "syl-occurs"). Only fix occurrences
+    that start at a boundary, so inner-word matches are left alone.
+    """
+    if not note:
+        return note
+    for variant in (v.strip() for v in key.split(",")):
+        if variant:
+            note = re.sub(r"(^|\s)(" + re.escape(variant) + r")(?=[a-z])",
+                          r"\1\2 ", note)
+    return note
+
+
 def build_roots(conn, wordroot_path):
     """Parse ECDICT `wordroot.txt` (JSON keyed by root/affix) into `word_roots`
     and `root_words`.
 
     Each key becomes a root entry (meaning/class/origin/synonyms/antonyms). Its
     `example` list is linked to existing `words` rows only; markers that are not
-    real headwords (e.g. "soundless1", "Homo sapiens") are skipped. Returns
+    real headwords (e.g. "soundless1", "Homo sapiens") are skipped. The raw
+    example list is also kept verbatim in `examples` (fallback display), and the
+    source's `function` usage commentary is stored in `note`. Returns
     (root_count, link_count).
     """
     if not os.path.exists(wordroot_path):
@@ -424,13 +444,16 @@ def build_roots(conn, wordroot_path):
             continue
         cur.execute(
             "INSERT OR REPLACE INTO word_roots "
-            "(root_key, class, meaning, origin, synonyms, antonyms) VALUES (?,?,?,?,?,?)",
+            "(root_key, class, meaning, origin, synonyms, antonyms, note, examples) "
+            "VALUES (?,?,?,?,?,?,?,?)",
             (key,
              _as_text(info.get("class")),
              _as_text(info.get("meaning")),
              _as_text(info.get("origin")),
              _as_text(info.get("synonyms")),
-             _as_text(info.get("antonyms"))))
+             _as_text(info.get("antonyms")),
+             _fix_affix_spacing(_as_text(info.get("function")).replace("\r\n", "\n"), key),
+             _as_text(info.get("example"))))
         root_count += 1
         order = 0
         for ex in (info.get("example") or []):
@@ -1198,7 +1221,7 @@ def main():
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("sentence_trans_total", str(sent_zh)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
-                ("schema_version", "8"))
+                ("schema_version", "9"))
     conn.commit()
 
     # Render the release-bundle licence declaration from license/README.md,

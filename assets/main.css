@@ -697,6 +697,22 @@ h1, h2, h3, h4 { color: var(--text); }
 .root-meaning { font-size: 17px; margin: 0; }
 .root-word-detail { margin-bottom: 18px; }
 .root-detail-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.root-note {
+  margin: 0; font-size: 14px; line-height: 1.75; color: var(--muted);
+  white-space: pre-line; background: var(--panel-2); border-left: 3px solid var(--primary);
+  border-radius: 8px; padding: 10px 14px;
+}
+.root-examples { font-size: 14px; line-height: 1.7; }
+.root-words { display: flex; flex-direction: column; gap: 2px; }
+.root-word-item {
+  display: flex; align-items: baseline; gap: 12px; width: 100%; text-align: left;
+  background: transparent; border: none; border-radius: 8px; padding: 7px 10px; cursor: pointer;
+}
+.root-word-item:hover { background: var(--panel-2); }
+.root-word-item.active { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--primary); }
+.root-word-item .rw-word { font-weight: 600; color: var(--primary); flex-shrink: 0; }
+.root-word-item:hover .rw-word { color: var(--text); }
+.root-word-item .rw-gloss { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip-link.active { border-color: var(--primary); background: var(--panel-2); color: var(--text); }
 
 /* ---------------- Sentence-bank quiz (选词填空 / 句意选择 / 听音辨词) ---------------- */

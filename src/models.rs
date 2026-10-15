@@ -138,6 +138,42 @@ pub struct WordRoot {
     /// Comma-separated related roots/affixes.
     pub synonyms: String,
     pub antonyms: String,
+    /// Usage commentary from the source's `function` field (affix formation
+    /// rules); empty for most plain roots.
+    pub note: String,
+    /// Raw example-word list (comma-separated), kept for display when the
+    /// linked `root_words` rows cover only part of it.
+    pub examples: String,
+}
+
+impl WordRoot {
+    /// Chinese caption for the grammatical class; unknown values pass through.
+    pub fn class_label(&self) -> &str {
+        match self.class.as_str() {
+            "root" => "词根",
+            "prefix" => "前缀",
+            "noun-forming suffix" => "名词后缀",
+            "adjective-forming suffix" => "形容词后缀",
+            "verb-forming suffix" => "动词后缀",
+            "adverb-forming suffix" => "副词后缀",
+            "adjective- and noun-forming suffix" => "形容词/名词后缀",
+            "" => "",
+            other => other,
+        }
+    }
+
+    /// Chinese caption for the language of origin; unknown values pass through.
+    pub fn origin_label(&self) -> &str {
+        match self.origin.as_str() {
+            "Latin" => "拉丁语",
+            "Greek" => "希腊语",
+            "Latin and Greek" => "拉丁语/希腊语",
+            "Old English" => "古英语",
+            "Middle English" => "中古英语",
+            "" => "",
+            other => other,
+        }
+    }
 }
 
 /// A Chinese->English dictionary entry (CC-CEDICT), keyed by Chinese headword.

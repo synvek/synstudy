@@ -273,7 +273,11 @@ pub fn WordDetail(word: Word) -> Element {
                             button {
                                 key: "{r.root_key}",
                                 class: "chip chip-link",
-                                title: "{r.meaning}",
+                                title: if r.class.is_empty() {
+                                    r.meaning.clone()
+                                } else {
+                                    format!("{} · {}", r.class_label(), r.meaning)
+                                },
                                 onclick: {
                                     let k = r.root_key.clone();
                                     move |_| {
