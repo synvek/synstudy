@@ -55,7 +55,8 @@ synstudy/
 │   ├── cefrj/*.csv           # CEFR-J 词库档案（A1-C2 等级标注）
 │   ├── wordnet/wordnet31/    # Princeton WordNet 3.1 dict 文件（近义/反义词补充，git 忽略）
 │   ├── wordroot.txt          # ECDICT 词根词缀（后期词根功能预留）
-│   └── dicts/*.json          # 分级词表
+│   └── dicts/*.json          # 分级词表（自定义词库接入方法见 docs/adding-wordlist.md）
+├── docs/                     # 开发文档（新增分级词库指南等）
 ├── license/                  # 外部词典数据的许可证条款文本 + 合规说明
 ├── scripts/
 │   ├── fetch_data.sh         # 一键下载全部源数据（遵循 http(s)_proxy）
@@ -116,6 +117,8 @@ bash scripts/fetch_data.sh
 | `cefrj/*.csv`（~280KB） | [CEFR-J](https://github.com/openlanguageprofiles/olp-en-cefrj)（**须引用署名**，C1/C2 为 CC BY-SA 4.0） | **难度等级**：为 `words.cefr` 标注 A1–C2 |
 
 > 初中 / 高中 / 四级 / 六级 / 考研 / 托福 / 雅思 / GRE 直接由 ECDICT 的 `tag` 字段（`zk/gk/cet4/cet6/ky/toefl/ielts/gre`）生成，无需额外下载。
+
+> 自整理的高频精选词库（如「四级核心词汇」）以 `data/dicts/*.json` + `source="json"` 分类接入，完整流程与范例见 [docs/adding-wordlist.md](docs/adding-wordlist.md)。
 
 > 若不想下载 ~200MB 的 Tatoeba links 文件，可设 `SKIP_TATOEBA_LINKS=1` 后再跑 `fetch_data.sh`；句库仍会构建，仅不包含中文参考译文（不影响选词填空 / 听音辨词）。中文译文依赖 `data/opencc/` 的繁→简转换表；若缺失则译文保留原始字形（多为繁体）。
 
