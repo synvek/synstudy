@@ -274,9 +274,9 @@ pub fn WordDetail(word: Word) -> Element {
                                 key: "{r.root_key}",
                                 class: "chip chip-link",
                                 title: if r.class.is_empty() {
-                                    r.meaning.clone()
+                                    r.gloss().to_string()
                                 } else {
-                                    format!("{} · {}", r.class_label(), r.meaning)
+                                    format!("{} · {}", r.class_label(), r.gloss())
                                 },
                                 onclick: {
                                     let k = r.root_key.clone();

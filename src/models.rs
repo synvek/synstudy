@@ -144,9 +144,21 @@ pub struct WordRoot {
     /// Raw example-word list (comma-separated), kept for display when the
     /// linked `root_words` rows cover only part of it.
     pub examples: String,
+    /// Curated Chinese gloss of the English `meaning` (data/wordroot_zh.tsv);
+    /// empty when the map has no entry, UI then falls back to `meaning`.
+    pub meaning_zh: String,
 }
 
 impl WordRoot {
+    /// Best display gloss: Chinese first, English as fallback.
+    pub fn gloss(&self) -> &str {
+        if self.meaning_zh.is_empty() {
+            &self.meaning
+        } else {
+            &self.meaning_zh
+        }
+    }
+
     /// Chinese caption for the grammatical class; unknown values pass through.
     pub fn class_label(&self) -> &str {
         match self.class.as_str() {

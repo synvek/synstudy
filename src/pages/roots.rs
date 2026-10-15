@@ -25,6 +25,7 @@ pub fn Roots() -> Element {
             .filter(|r| {
                 r.root_key.to_lowercase().contains(&f)
                     || r.meaning.to_lowercase().contains(&f)
+                    || r.meaning_zh.contains(&f)
                     || r.class.to_lowercase().contains(&f)
                     || r.note.to_lowercase().contains(&f)
             })
@@ -96,7 +97,7 @@ pub fn Roots() -> Element {
                                         }
                                     },
                                     span { class: "result-word", "{r.root_key}" }
-                                    span { class: "result-trans", "{r.meaning}" }
+                                    span { class: "result-trans", "{r.gloss()}" }
                                 }
                             }
                         }
@@ -139,7 +140,10 @@ pub fn Roots() -> Element {
                                 }
                                 div { class: "wd-sec",
                                     h4 { "含义" }
-                                    p { class: "root-meaning", "{r.meaning}" }
+                                    p { class: "root-meaning", "{r.gloss()}" }
+                                    if !r.meaning_zh.is_empty() && !r.meaning.is_empty() {
+                                        p { class: "root-meaning-en muted", "{r.meaning}" }
+                                    }
                                 }
                                 if !r.note.is_empty() {
                                     div { class: "wd-sec",

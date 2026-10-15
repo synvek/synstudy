@@ -695,6 +695,7 @@ h1, h2, h3, h4 { color: var(--text); }
 .root-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
 .root-key { font-size: 28px; margin: 0; color: var(--primary); }
 .root-meaning { font-size: 17px; margin: 0; }
+.root-meaning-en { font-size: 13px; margin: 2px 0 0; }
 .root-word-detail { margin-bottom: 18px; }
 .root-detail-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .root-note {

@@ -55,11 +55,12 @@ fn row_to_root(row: &Row) -> rusqlite::Result<WordRoot> {
         antonyms: row.get(5)?,
         note: row.get(6)?,
         examples: row.get(7)?,
+        meaning_zh: row.get(8)?,
     })
 }
 
-const ROOT_COLS: &str =
-    "r.root_key, r.class, r.meaning, r.origin, r.synonyms, r.antonyms, r.note, r.examples";
+const ROOT_COLS: &str = "r.root_key, r.class, r.meaning, r.origin, r.synonyms, r.antonyms, \
+                         r.note, r.examples, r.meaning_zh";
 
 const SENT_COLS: &str = "s.id, s.text, s.translation, s.source, s.source_id, \
                          s.cefr_min, s.exam_levels, s.difficulty, s.word_count";
@@ -1092,7 +1093,7 @@ mod tests {
             CREATE TABLE word_roots (
                 root_key TEXT PRIMARY KEY, class TEXT DEFAULT '', meaning TEXT DEFAULT '',
                 origin TEXT DEFAULT '', synonyms TEXT DEFAULT '', antonyms TEXT DEFAULT '',
-                note TEXT DEFAULT '', examples TEXT DEFAULT ''
+                note TEXT DEFAULT '', examples TEXT DEFAULT '', meaning_zh TEXT DEFAULT ''
             );
             CREATE TABLE root_words (
                 root_key TEXT NOT NULL, word_id INTEGER NOT NULL, order_index INTEGER NOT NULL DEFAULT 0,
@@ -1101,8 +1102,8 @@ mod tests {
             INSERT INTO words (id, word, translation) VALUES
                 (1,'malfunction','n. 故障'),
                 (2,'malware','n. 恶意软件');
-            INSERT INTO word_roots (root_key, class, meaning, origin, note, examples) VALUES
-                ('mal','prefix','bad','Latin','The prefix mal- attaches to Latin bases.','malfunction, malware');
+            INSERT INTO word_roots (root_key, class, meaning, origin, note, examples, meaning_zh) VALUES
+                ('mal','prefix','bad','Latin','The prefix mal- attaches to Latin bases.','malfunction, malware','坏；恶');
             INSERT INTO root_words (root_key, word_id, order_index) VALUES
                 ('mal',2,1),('mal',1,0);",
         )
@@ -1132,6 +1133,8 @@ mod tests {
         assert_eq!(roots[0].class, "prefix");
         assert_eq!(roots[0].note, "The prefix mal- attaches to Latin bases.");
         assert_eq!(roots[0].examples, "malfunction, malware");
+        assert_eq!(roots[0].meaning_zh, "坏；恶");
+        assert_eq!(roots[0].gloss(), "坏；恶");
         // Ordered by order_index, not insertion order.
         let words = repo.root_words("mal");
         let ws: Vec<&str> = words.iter().map(|w| w.word.as_str()).collect();

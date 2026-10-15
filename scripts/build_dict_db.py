@@ -147,7 +147,8 @@ CREATE TABLE word_roots (
     synonyms TEXT DEFAULT '',
     antonyms TEXT DEFAULT '',
     note     TEXT DEFAULT '',
-    examples TEXT DEFAULT ''
+    examples TEXT DEFAULT '',
+    meaning_zh TEXT DEFAULT ''
 );
 
 CREATE TABLE root_words (
@@ -415,6 +416,27 @@ def _fix_affix_spacing(note, key):
     return note
 
 
+def _load_root_zh(data_dir):
+    """Load the curated root_key -> Chinese gloss map (data/wordroot_zh.tsv).
+
+    Self-authored derivative of ECDICT's English wordroot meanings; returns an
+    empty map when the file is absent (UI then falls back to the English text).
+    """
+    path = os.path.join(data_dir, "wordroot_zh.tsv")
+    zh = {}
+    if not os.path.exists(path):
+        print("  [warn] {} not found; 词根中文释义将为空".format(path))
+        return zh
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line.strip() or "\t" not in line:
+                continue
+            key, gloss = line.split("\t", 1)
+            zh[key.strip()] = gloss.strip()
+    return zh
+
+
 def build_roots(conn, wordroot_path):
     """Parse ECDICT `wordroot.txt` (JSON keyed by root/affix) into `word_roots`
     and `root_words`.
@@ -423,7 +445,8 @@ def build_roots(conn, wordroot_path):
     `example` list is linked to existing `words` rows only; markers that are not
     real headwords (e.g. "soundless1", "Homo sapiens") are skipped. The raw
     example list is also kept verbatim in `examples` (fallback display), and the
-    source's `function` usage commentary is stored in `note`. Returns
+    source's `function` usage commentary is stored in `note`. Chinese glosses
+    come from the curated `data/wordroot_zh.tsv` map into `meaning_zh`. Returns
     (root_count, link_count).
     """
     if not os.path.exists(wordroot_path):
@@ -432,6 +455,7 @@ def build_roots(conn, wordroot_path):
     import json
     with open(wordroot_path, "r", encoding="utf-8") as f:
         data = json.load(f)
+    zh_map = _load_root_zh(os.path.dirname(wordroot_path))
     cur = conn.cursor()
     ids = word_id_map(conn)
     lower_ids = {}
@@ -444,8 +468,8 @@ def build_roots(conn, wordroot_path):
             continue
         cur.execute(
             "INSERT OR REPLACE INTO word_roots "
-            "(root_key, class, meaning, origin, synonyms, antonyms, note, examples) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "(root_key, class, meaning, origin, synonyms, antonyms, note, examples, meaning_zh) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (key,
              _as_text(info.get("class")),
              _as_text(info.get("meaning")),
@@ -453,7 +477,8 @@ def build_roots(conn, wordroot_path):
              _as_text(info.get("synonyms")),
              _as_text(info.get("antonyms")),
              _fix_affix_spacing(_as_text(info.get("function")).replace("\r\n", "\n"), key),
-             _as_text(info.get("example"))))
+             _as_text(info.get("example")),
+             zh_map.get(key, "")))
         root_count += 1
         order = 0
         for ex in (info.get("example") or []):
@@ -1221,7 +1246,7 @@ def main():
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
                 ("sentence_trans_total", str(sent_zh)))
     cur.execute("INSERT INTO meta (key, value) VALUES (?,?)",
-                ("schema_version", "9"))
+                ("schema_version", "10"))
     conn.commit()
 
     # Render the release-bundle licence declaration from license/README.md,
