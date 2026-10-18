@@ -18,6 +18,15 @@ mod srs;
 mod state;
 mod tts;
 
+// Screenshot/photo translation stack. Fully gated behind the opt-in `translate`
+// feature so the default build never pulls the native OCR/LLM dependencies.
+// `capture` (desktop screen grab) is additionally limited to non-mobile targets;
+// mobile image input arrives through the webview file picker in Phase 3.
+#[cfg(feature = "translate")]
+mod translate;
+#[cfg(all(feature = "translate", not(any(target_os = "ios", target_os = "android"))))]
+mod capture;
+
 /// Application body: initialize platform singletons, then hand off to Dioxus.
 ///
 /// Called by the `[[bin]]`'s `fn main` on every platform.

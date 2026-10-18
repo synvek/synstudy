@@ -51,3 +51,28 @@ Tatoeba 的中文译文以繁体为主，构建时使用 OpenCC 的 `TSCharacter
 `words.cefr` 等级来自 CEFR-J 词库档案，版权归属东京外国语大学户田研。
 - 可免费用于研究与**商用**，前提是**正确引用**数据集（详见 `CEFR-J-NOTICE.txt`）。
 - 其中 C1/C2 补充（Octanove）以 CC BY-SA 4.0 发布，再分发时同样适用数据层面的 SA 义务。
+
+## 可选「翻译」功能组件（`translate` feature）
+
+以下组件与上面的词典**数据**许可相互独立：它们**仅在以 `--features translate`
+构建时**静态链接进程序（推理引擎），或其模型权重在**运行时由用户从官方源
+自行下载**（synstudy 不随安装包再分发任何模型文件）。因此它们**不参与**
+`THIRD-PARTY-NOTICES.txt` —— 该文件只声明实际入库的词典数据源（见
+`scripts/gen_notices.py` 的说明）；翻译构建可选地以 `--with-translate` 追加一段
+组件声明，且该附录不计入 `notices_version` 哈希。
+
+| 组件 | 用途 | 许可证 | 条款文件 |
+| --- | --- | --- | --- |
+| [MNN](https://github.com/alibaba/MNN) | OCR 推理引擎（经 `rust-paddle-ocr` 静态链接） | Apache-2.0 | [`MNN-NOTICE.txt`](./MNN-NOTICE.txt) |
+| [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) | PP-OCRv5 mobile 检测 / 识别模型（运行时下载，约 28 MB） | Apache-2.0 | [`PaddleOCR-NOTICE.txt`](./PaddleOCR-NOTICE.txt) |
+| [llama.cpp](https://github.com/ggerganov/llama.cpp) | 翻译模型推理引擎（经 `llama-cpp-2` 静态链接） | MIT | [`llama-cpp-NOTICE.txt`](./llama-cpp-NOTICE.txt) |
+| [HY-MT1.5-1.8B](https://github.com/Tencent-Hunyuan/HY-MT) | 翻译模型权重（运行时由用户从官方源下载，约 980 MB，不再分发） | 以官方模型卡为准（腾讯混元社区许可） | [`HY-MT-NOTICE.txt`](./HY-MT-NOTICE.txt) |
+
+- **代码组件（MNN / llama.cpp）**：Apache-2.0 与 MIT 均允许自由使用、修改与再
+  分发（含商用），保留版权与许可声明即可；完整条款见根目录
+  `LICENSE-APACHE.txt` / `LICENSE-MIT.txt`。
+- **模型权重（PaddleOCR / HY-MT）**：**不随包分发**，仅由用户在运行时从官方源
+  下载，规避再分发合规风险。HY-MT 的使用须遵守腾讯混元官方许可条款（可能含
+  商用规模阈值等限制），下载前请在官方模型卡阅读并同意。
+- 应用内「设置 → 关于 → 版权与许可」在启用翻译功能时会额外列出上述组件及其
+  官方链接。

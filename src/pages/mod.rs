@@ -9,6 +9,7 @@ pub mod sentence_quiz;
 pub mod settings;
 pub mod stats;
 pub mod study;
+pub mod translate;
 pub mod wordbook;
 
 use dioxus::prelude::*;

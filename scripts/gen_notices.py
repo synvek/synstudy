@@ -20,6 +20,10 @@ script can also be run standalone against an existing DB:
   python3 scripts/gen_notices.py [--db assets/synstudy.db]
                                  [--readme license/README.md]
                                  [--out assets/THIRD-PARTY-NOTICES.txt]
+                                 [--with-translate]
+
+`--with-translate` appends an (unhashed) appendix listing the optional
+`translate` feature's code/model components; see TRANSLATE_APPENDIX below.
 """
 import argparse
 import datetime
@@ -44,6 +48,31 @@ SOURCES = [
     ("OpenCC",     ["opencc"],                  ["sentence_trans_total"]),
     ("CEFR-J",     ["cefr-j"],                  ["cefr_tagged"]),
 ]
+
+# Optional appendix for builds that enable the `translate` feature. It lists the
+# code/model components behind screenshot translation: inference engines that
+# are statically linked (MNN, llama.cpp) and models the user downloads at
+# runtime (PaddleOCR / HY-MT weights, never redistributed). It is appended
+# OUTSIDE the hashed data body, so notices_version stays tied to the bundled
+# dictionary data and a default (data-only) run still produces a byte-identical
+# file.
+TRANSLATE_APPENDIX = "\n".join([
+    LINE,
+    " 可选「翻译」功能组件（仅在以 --features translate 构建时适用）",
+    LINE,
+    "",
+    "以下组件与上面的词典数据许可相互独立，且不计入 notices_version 哈希：",
+    "  · MNN            —— OCR 推理引擎（经 rust-paddle-ocr 静态链接）   Apache-2.0",
+    "  · PaddleOCR      —— PP-OCRv5 mobile 检测 / 识别模型（运行时下载） Apache-2.0",
+    "  · llama.cpp      —— 翻译模型推理引擎（经 llama-cpp-2 静态链接）   MIT",
+    "  · HY-MT1.5-1.8B  —— 翻译模型权重（运行时由用户从官方源下载，不再分发）",
+    "                      许可以腾讯混元官方模型卡为准",
+    "",
+    "推理引擎随程序静态链接；模型文件均不随安装包分发，仅由用户在运行时从官方源",
+    "下载并做完整性校验。完整条款文本见仓库 license/ 子目录（MNN-NOTICE.txt /",
+    "PaddleOCR-NOTICE.txt / llama-cpp-NOTICE.txt / HY-MT-NOTICE.txt）。",
+    "",
+])
 
 
 def _norm(name):
@@ -90,7 +119,7 @@ def used_sources(meta):
     return out
 
 
-def render(readme_text, meta):
+def render(readme_text, meta, with_translate=False):
     rows, sections = parse_readme(readme_text)
     included = used_sources(meta)
 
@@ -142,7 +171,11 @@ def render(readme_text, meta):
         body_lines.extend("  - " + w for w in warnings)
 
     body = "\n".join(header + body_lines + [""])
+    # notices_version covers the DATA body only, so the optional translate
+    # appendix (code/model components, never bundled data) can be added without
+    # changing the hash recorded in the DB meta table.
     version = hashlib.sha256(body.encode("utf-8")).hexdigest()[:12]
+    appendix = TRANSLATE_APPENDIX if with_translate else ""
     footer = [
         LINE,
         "notices_version: {}  （声明正文的 sha256 前 12 位；同步记录于数据库 meta 表）".format(version),
@@ -150,14 +183,14 @@ def render(readme_text, meta):
             datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
         "",
     ]
-    return version, body + "\n".join(footer)
+    return version, body + appendix + "\n".join(footer)
 
 
-def generate_from_conn(conn, readme_path, out_path):
+def generate_from_conn(conn, readme_path, out_path, with_translate=False):
     """Render notices using live meta stats; returns notices_version."""
     meta = dict(conn.execute("SELECT key, value FROM meta"))
     with open(readme_path, "r", encoding="utf-8") as f:
-        version, text = render(f.read(), meta)
+        version, text = render(f.read(), meta, with_translate)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(text)
     return version
@@ -168,12 +201,15 @@ def main():
     ap.add_argument("--db", default=os.path.join(ROOT, "assets", "synstudy.db"))
     ap.add_argument("--readme", default=os.path.join(ROOT, "license", "README.md"))
     ap.add_argument("--out", default=os.path.join(ROOT, "assets", "THIRD-PARTY-NOTICES.txt"))
+    ap.add_argument("--with-translate", action="store_true",
+                    help="append the optional `translate` feature components "
+                         "(MNN / PaddleOCR / llama.cpp / HY-MT); not part of notices_version")
     args = ap.parse_args()
     if not os.path.exists(args.db):
         sys.exit("ERROR: {} not found (run scripts/build_dict_db.py first)".format(args.db))
     conn = sqlite3.connect("file:{}?mode=ro".format(args.db), uri=True)
     try:
-        version = generate_from_conn(conn, args.readme, args.out)
+        version = generate_from_conn(conn, args.readme, args.out, args.with_translate)
     finally:
         conn.close()
     print("Wrote {} (notices_version {})".format(args.out, version))

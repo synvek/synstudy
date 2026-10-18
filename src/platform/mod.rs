@@ -96,3 +96,16 @@ pub fn progress_db_path() -> PathBuf {
     let _ = std::fs::create_dir_all(&dir);
     dir.join("progress.db")
 }
+
+/// Directory for on-demand downloaded translation models (OCR + MT weights).
+///
+/// Models are never bundled with the app (they are ~1 GB and would break App
+/// Store size limits), so they live under the writable data dir and are
+/// fetched/verified at first use. Created lazily. Only compiled when the
+/// `translate` feature is on.
+#[cfg(feature = "translate")]
+pub fn models_dir() -> PathBuf {
+    let dir = data_dir().join("models");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}

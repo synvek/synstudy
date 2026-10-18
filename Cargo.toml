@@ -32,11 +32,61 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 fsrs = "6"
 
+# --- Screenshot/photo translation (opt-in `translate` feature) -------------
+# All heavy, native-build dependencies are optional and gated behind the
+# `translate` feature so the default build (and CI / mobile) stays light and
+# does not require cmake / clang / multi-GB models. See docs/translate.md.
+#
+# OCR: PaddleOCR models on the MNN inference engine (Apache-2.0). Cross-
+# platform native backend; the same crate serves desktop and (Phase 3) mobile.
+# NOTE: upstream renamed the crate to `ocr-rs` (v2.x) on the repo's default
+# branch (`master`). Our code targets the `rust-paddle-ocr` v1.4.2 API on the
+# `main` branch (which also matches the OCR model download URLs in models.rs,
+# served from `.../raw/main/models/`), so we pin `branch = "main"` explicitly —
+# otherwise cargo resolves the default branch and fails with "no matching
+# package named `rust-paddle-ocr`". Migrating to `ocr-rs` 2.x is a follow-up
+# (import name + Det/Rec API + model layout all change).
+rust-paddle-ocr = { git = "https://github.com/zibo-chen/rust-paddle-ocr.git", branch = "main", optional = true }
+# NOTE: `rust-paddle-ocr` pulls the `mnn` crate (aftershootco/mnn-rs) as a FLOATING
+# git dep (no rev), which upstream has since changed in an incompatible way
+# (`mnn::Session` gained a lifetime; `copy_from_host_tensor` signature moved).
+# v1.4.2 only compiles against mnn rev `1a275e70` (the rev in its own lockfile),
+# so `Cargo.lock` pins `mnn`/`mnn-sys` there. A plain `cargo update` would float it
+# back to the breaking HEAD. To restore after an accidental update:
+#   cargo update -p mnn --precise 1a275e70336d2f21603a41b22b3b257bc3b49333
+# ([patch] on the same URL, or adding `mnn={rev=..}` directly, both fail: "patches
+# must point to different sources" / `links="mnn"` conflict.) See docs/translate.md.
+# Translation: HY-MT1.5-1.8B GGUF via llama.cpp FFI bindings. Metal is enabled
+# by llama.cpp automatically on Apple targets; Vulkan/CUDA are opt-in through
+# the `translate-vulkan` / `translate-cuda` features below.
+llama-cpp-2 = { version = "0.1", optional = true }
+# Desktop screen capture (Apache-2.0). `image` is shared with the OCR/MT path.
+xcap = { version = "0.9", optional = true }
+# Blocking model downloader + SHA-256 verification. `image` for decode/crop.
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "rustls-tls"] }
+sha2 = { version = "0.10", optional = true }
+image = { version = "0.25", optional = true }
+# Portable async sleep for the UI's engine-inbox polling loop. Dioxus 0.8's
+# desktop prelude exposes no timer (its `TimeoutFuture` is gloo/wasm-only), so
+# we use futures-timer's cross-platform `Delay` (native helper thread + wasm).
+futures-timer = { version = "3", optional = true }
+
 # Desktop-only: `directories` returns a macOS/Linux/Windows app-data folder.
 # Not usable on iOS/Android sandboxes, so we gate it out and route through
 # `crate::platform` instead.
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
 directories = "5"
+# Native file-open dialog (MIT/Apache-2.0) for the translate page's "打开图片"
+# button. Desktop-only (mobile uses the webview file/camera picker in Phase 3).
+# Blocking API only, so we drop rfd's default (async/tokio) features.
+rfd = { version = "0.15", optional = true, default-features = false }
+
+# macOS: `libc::atexit` lets the translate engine release its resident
+# llama/Metal resources during `exit()` before ggml's own Metal device
+# destructor runs (otherwise it asserts `Abort trap: 6` at teardown). The crash
+# is Metal-specific, so the dependency is scoped to macOS.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 
 # iOS native bridges: bundle path lookup only.
 # TTS on iOS currently falls through to the WebView `speechSynthesis` API
@@ -57,6 +107,25 @@ jni = "0.21"
 default = ["desktop"]
 desktop = ["dioxus/desktop"]
 web = ["dioxus/web"]
+
+# Opt-in local screenshot/photo translation (OCR + machine translation).
+# Off by default: pulls native-build deps (cmake/clang) and downloads models at
+# runtime. Enable with `cargo run --features translate`.
+translate = [
+    "dep:rust-paddle-ocr",
+    "dep:llama-cpp-2",
+    "dep:xcap",
+    "dep:reqwest",
+    "dep:sha2",
+    "dep:image",
+    "dep:futures-timer",
+    "dep:rfd",
+]
+# GPU backends for the llama.cpp translation engine. Metal is on automatically
+# for Apple targets, so these only matter for Windows/Linux (Vulkan) or NVIDIA
+# (CUDA). Each implies the base `translate` feature.
+translate-vulkan = ["translate", "llama-cpp-2/vulkan"]
+translate-cuda = ["translate", "llama-cpp-2/cuda"]
 
 [profile.release]
 opt-level = 3

@@ -1,0 +1,33 @@
+PaddleOCR / PP-OCRv5 mobile 模型
+================================
+
+用途（本项目）
+--------------
+截图 / 拍照翻译功能使用 PaddleOCR 的 PP-OCRv5 mobile 文本检测（det）与
+识别（rec）模型，以及配套的 `ppocr_keys_v5.txt` 字典。这些模型经 MNN 格式
+在本地推理。
+
+模型分发方式（重要）
+--------------------
+synstudy **不随安装包再分发**任何 PaddleOCR 模型文件。模型由用户在首次使用
+「翻译」功能时，通过应用内的下载入口从官方源按需获取（约 28 MB），下载后
+做完整性校验，仅存放在本地应用数据目录。
+
+版权与许可
+----------
+PaddleOCR 由 PaddlePaddle（百度）及其贡献者开发，采用 Apache License 2.0
+授权；其发布的 PP-OCRv5 系列模型同样以 Apache-2.0 提供。
+
+    Copyright © PaddlePaddle Authors.
+    Licensed under the Apache License, Version 2.0.
+
+Apache-2.0 完整条款文本见本仓库根目录的 LICENSE-APACHE.txt。
+
+项目主页
+--------
+https://github.com/PaddlePaddle/PaddleOCR
+
+说明
+----
+本文件仅为归属声明（notice）。若上游模型许可或条款发生变更，以官方仓库与
+模型发布页标注为准。

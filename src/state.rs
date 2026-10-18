@@ -14,6 +14,9 @@ pub enum Page {
     Quiz,
     Roots,
     Stats,
+    /// Screenshot/photo translation (OCR + on-device MT). Gated behind the
+    /// `translate` feature; the page renders a placeholder otherwise.
+    Translate,
     Settings,
     /// Mobile-only "我的" hub: a card list of the secondary destinations.
     Mine,
@@ -32,6 +35,7 @@ impl Page {
             Page::Quiz => "测验",
             Page::Roots => "词根",
             Page::Stats => "统计",
+            Page::Translate => "翻译",
             Page::Settings => "设置",
             Page::Mine => "我的",
             Page::Consolidate => "巩固",
@@ -49,6 +53,7 @@ impl Page {
             Page::Quiz,
             Page::Roots,
             Page::Stats,
+            Page::Translate,
         ]
     }
 
@@ -64,6 +69,7 @@ impl Page {
             Page::Quiz,
             Page::Roots,
             Page::Stats,
+            Page::Translate,
             Page::Settings,
         ]
     }
@@ -340,6 +346,21 @@ pub struct Settings {
     /// Spaced-repetition algorithm used when scheduling reviews.
     #[serde(default)]
     pub scheduler: Scheduler,
+    /// Target language for the translation page (HY-MT language name, e.g.
+    /// "Chinese", "English"). `#[serde(default)]` keeps older saves parseable.
+    #[serde(default = "default_translate_target_lang")]
+    pub translate_target_lang: String,
+    /// Source language; "auto" lets the model detect it.
+    #[serde(default = "default_translate_src_lang")]
+    pub translate_src_lang: String,
+    /// Keep the OCR/MT models loaded after a translation so the next one is
+    /// instant. Off frees memory when idle (recommended off on mobile).
+    #[serde(default = "default_true")]
+    pub translate_keep_model_resident: bool,
+    /// Prefer a GPU backend (Metal on Apple, Vulkan/CUDA where built in) when
+    /// loading the translation model; off forces CPU.
+    #[serde(default = "default_true")]
+    pub translate_gpu: bool,
 }
 
 fn default_tts_rate() -> f32 {
@@ -348,6 +369,14 @@ fn default_tts_rate() -> f32 {
 
 fn default_study_size() -> usize {
     20
+}
+
+fn default_translate_target_lang() -> String {
+    "Chinese".to_string()
+}
+
+fn default_translate_src_lang() -> String {
+    "auto".to_string()
 }
 
 impl Default for Settings {
@@ -366,6 +395,10 @@ impl Default for Settings {
             tts_rate: default_tts_rate(),
             tts_autoplay: false,
             scheduler: Scheduler::default(),
+            translate_target_lang: default_translate_target_lang(),
+            translate_src_lang: default_translate_src_lang(),
+            translate_keep_model_resident: true,
+            translate_gpu: true,
         }
     }
 }

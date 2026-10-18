@@ -71,6 +71,30 @@ pub fn App() -> Element {
         ));
     });
 
+    // On desktop with the translate stack, release the resident llama/Metal
+    // models as the window closes. ggml's Metal device destructor asserts
+    // (`Abort trap: 6`) if any GPU resource is still alive when the process
+    // exits, and the translation worker thread that owns them is never unwound
+    // by `exit()` — so free them here, while the runtime is still healthy, and
+    // let the process tear down cleanly.
+    #[cfg(all(feature = "translate", not(any(target_os = "ios", target_os = "android"))))]
+    {
+        use dioxus::desktop::tao::event::{Event, WindowEvent};
+        dioxus::desktop::use_wry_event_handler(|event, _target| {
+            let closing = match event {
+                Event::WindowEvent {
+                    event: WindowEvent::Destroyed,
+                    ..
+                } => true,
+                Event::LoopDestroyed => true,
+                _ => false,
+            };
+            if closing {
+                crate::translate::shutdown();
+            }
+        });
+    }
+
     rsx! {
         // dx's built-in HTML template ships a bare `width=device-width,
         // initial-scale=1` viewport. Adding viewport-fit=cover (WebKit merges
@@ -140,6 +164,7 @@ fn AppShell() -> Element {
                     Page::Quiz => rsx! { pages::quiz::Quiz {} },
                     Page::Roots => rsx! { pages::roots::Roots {} },
                     Page::Stats => rsx! { pages::stats::Stats {} },
+                    Page::Translate => rsx! { pages::translate::Translate {} },
                     Page::Settings => rsx! { pages::settings::SettingsPage {} },
                     Page::Mine => rsx! { pages::mine::Mine {} },
                     Page::Consolidate => rsx! { pages::consolidate::Consolidate {} },

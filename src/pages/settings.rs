@@ -31,6 +31,104 @@ impl AboutTab {
     }
 }
 
+/// The “翻译” settings group, built by a cfg-gated helper. This Dioxus version's
+/// `rsx!` rejects `#[cfg]` attributes on child elements, so the whole group is
+/// constructed here (item-level cfg is fine) and spliced into the page as an
+/// expression child; it renders nothing when the `translate` feature is off.
+#[cfg(feature = "translate")]
+fn translate_settings_section(mut settings: Signal<Settings>, progress: ProgressRepo) -> Element {
+    let cur = settings();
+    let persist = {
+        let progress = progress.clone();
+        move |s: Settings| {
+            settings.set(s.clone());
+            if let Ok(json) = serde_json::to_string(&s) {
+                progress.set_setting(SETTINGS_KEY, &json);
+            }
+        }
+    };
+    rsx! {
+        section { class: "setting-group",
+            h3 { "翻译（截图 / 拍照）" }
+            div { class: "setting-row",
+                label { "目标语言" }
+                select {
+                    class: "select",
+                    value: "{cur.translate_target_lang}",
+                    onchange: {
+                        let mut persist = persist.clone();
+                        move |e| {
+                            let mut s = settings.read().clone();
+                            s.translate_target_lang = e.data().value();
+                            persist(s);
+                        }
+                    },
+                    for (val, name) in crate::translate::LANGS {
+                        option { key: "{val}", value: "{val}", "{name}" }
+                    }
+                }
+            }
+            div { class: "setting-row",
+                label { "源语言" }
+                select {
+                    class: "select",
+                    value: "{cur.translate_src_lang}",
+                    onchange: {
+                        let mut persist = persist.clone();
+                        move |e| {
+                            let mut s = settings.read().clone();
+                            s.translate_src_lang = e.data().value();
+                            persist(s);
+                        }
+                    },
+                    option { key: "auto", value: "auto", "自动检测" }
+                    for (val, name) in crate::translate::LANGS {
+                        option { key: "{val}", value: "{val}", "{name}" }
+                    }
+                }
+            }
+            div { class: "setting-row",
+                label { "GPU 加速（Metal / Vulkan / CUDA）" }
+                input {
+                    r#type: "checkbox",
+                    checked: cur.translate_gpu,
+                    onchange: {
+                        let mut persist = persist.clone();
+                        move |e| {
+                            let mut s = settings.read().clone();
+                            s.translate_gpu = e.data().checked();
+                            persist(s);
+                        }
+                    }
+                }
+            }
+            div { class: "setting-row",
+                label { "翻译后保持模型常驻内存" }
+                input {
+                    r#type: "checkbox",
+                    checked: cur.translate_keep_model_resident,
+                    onchange: {
+                        let mut persist = persist.clone();
+                        move |e| {
+                            let mut s = settings.read().clone();
+                            s.translate_keep_model_resident = e.data().checked();
+                            persist(s);
+                        }
+                    }
+                }
+            }
+            p { class: "muted hint",
+                "翻译全程本地离线完成：OCR 采用 PaddleOCR（MNN 推理），译文由 HY-MT1.5-1.8B 生成。模型不随安装包分发，首次在「翻译」页按需下载（OCR 约 28 MB、翻译模型约 980 MB）并做完整性校验。低配设备可关闭 GPU 加速或模型常驻以节省显存 / 内存。"
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "translate"))]
+fn translate_settings_section(_settings: Signal<Settings>, _progress: ProgressRepo) -> Element {
+    rsx! {}
+}
+
 #[component]
 pub fn SettingsPage() -> Element {
     let dict: DictRepo = use_context();
@@ -357,10 +455,12 @@ pub fn SettingsPage() -> Element {
                 p { class: "muted hint", "发音使用系统内置语音（离线），需操作系统已安装英文语音包。" }
             }
 
+            { translate_settings_section(settings, progress.clone()) }
+
             section { class: "setting-group desktop-only",
                 h3 { "快捷键" }
                 div { class: "setting-row column",
-                    div { class: "kv", span { class: "k", "切换页面" } span { class: "v", "Ctrl / ⌘ + 1~8" } }
+                    div { class: "kv", span { class: "k", "切换页面" } span { class: "v", "Ctrl / ⌘ + 1~9" } }
                     div { class: "kv", span { class: "k", "前往词典搜索" } span { class: "v", "Ctrl / ⌘ + K" } }
                     div { class: "kv", span { class: "k", "词典选择结果" } span { class: "v", "↑ / ↓，Enter 打开" } }
                     div { class: "kv", span { class: "k", "学习翻面 / 认识 / 不认识" } span { class: "v", "空格 / Enter / Backspace" } }
@@ -531,6 +631,45 @@ const DATA_LICENSES: &[LicenseDoc] = &[
     },
 ];
 
+/// Components of the optional `translate` feature: statically-linked inference
+/// engines (MNN, llama.cpp) plus models the user downloads at runtime and that
+/// synstudy never redistributes (PaddleOCR, HY-MT). Empty when the feature is
+/// off, so the About → License tab simply omits the whole group.
+#[cfg(feature = "translate")]
+const TRANSLATE_LICENSES: &[LicenseDoc] = &[
+    LicenseDoc {
+        name: "MNN",
+        usage: "OCR 推理引擎（经 rust-paddle-ocr 静态链接）",
+        lic: "Apache-2.0",
+        url: "https://github.com/alibaba/MNN",
+        text: include_str!("../../license/MNN-NOTICE.txt"),
+    },
+    LicenseDoc {
+        name: "PaddleOCR",
+        usage: "PP-OCRv5 mobile 检测 / 识别模型（运行时下载）",
+        lic: "Apache-2.0",
+        url: "https://github.com/PaddlePaddle/PaddleOCR",
+        text: include_str!("../../license/PaddleOCR-NOTICE.txt"),
+    },
+    LicenseDoc {
+        name: "llama.cpp",
+        usage: "翻译模型推理引擎（经 llama-cpp-2 静态链接）",
+        lic: "MIT",
+        url: "https://github.com/ggerganov/llama.cpp",
+        text: include_str!("../../license/llama-cpp-NOTICE.txt"),
+    },
+    LicenseDoc {
+        name: "HY-MT1.5-1.8B",
+        usage: "翻译模型权重（运行时下载，不再分发）",
+        lic: "以官方模型卡为准",
+        url: "https://github.com/Tencent-Hunyuan/HY-MT",
+        text: include_str!("../../license/HY-MT-NOTICE.txt"),
+    },
+];
+
+#[cfg(not(feature = "translate"))]
+const TRANSLATE_LICENSES: &[LicenseDoc] = &[];
+
 /// Render one "版权与许可" accordion group: each source is a clickable row that
 /// expands to reveal its embedded license text and links out to the official
 /// license page. `open` is the shared single-open state across all groups.
@@ -631,6 +770,11 @@ fn AboutOverlay(
                         { license_docs_view(DATA_LICENSES, open) }
                         p { class: "muted hint", "对外分发含 CC-BY-SA 成分的数据（如 zh_entries / examples 表）时，该部分演绎数据须以 CC-BY-SA 4.0 相同许可共享；本项目源代码不受其传染。随附的开源构建脚本（scripts/）可自助重建数据库。" }
                         p { class: "muted hint", "本项目不分发也不爬取 CET/TEM/TOEFL/GRE 等受版权保护的真题内容；考试级别仅基于开放的 ECDICT 考纲元数据自行标注。" }
+                        if !TRANSLATE_LICENSES.is_empty() {
+                            h3 { "翻译组件许可（可选功能）" }
+                            p { "以下组件仅在启用「翻译」功能时使用：推理引擎（MNN / llama.cpp）随程序静态链接，模型权重（PaddleOCR / HY-MT）由你在运行时从官方源下载，synstudy 不随包再分发任何模型。" }
+                            { license_docs_view(TRANSLATE_LICENSES, open) }
+                        }
                     }
                 },
                 AboutTab::Privacy => rsx! {

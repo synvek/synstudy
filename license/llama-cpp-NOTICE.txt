@@ -1,0 +1,28 @@
+llama.cpp — LLM 推理引擎
+========================
+
+用途（本项目）
+--------------
+翻译功能通过 Rust 绑定 crate `llama-cpp-2` 调用 llama.cpp，加载并运行
+HY-MT1.5-1.8B 的 GGUF 量化权重进行本地机器翻译推理。仅在以
+`--features translate` 构建 synstudy 时，随该 crate 一起从源码编译并静态
+链接进程序（含可选的 Metal / Vulkan / CUDA 后端）。默认构建不包含 llama.cpp。
+
+版权与许可
+----------
+llama.cpp 由 Georgi Gerganov 及贡献者开发，采用 MIT License 授权。
+
+    Copyright © 2023-2024 The ggml authors
+    MIT License
+
+MIT 完整条款文本见本仓库根目录的 LICENSE-MIT.txt。
+
+项目主页
+--------
+https://github.com/ggerganov/llama.cpp
+https://github.com/utilityai/llama-cpp-rs （Rust 绑定 llama-cpp-2）
+
+说明
+----
+本文件仅为归属声明（notice）。若上游许可证发生变更，以官方仓库 LICENSE
+文件为准。

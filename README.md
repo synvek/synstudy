@@ -23,6 +23,7 @@
 - **背诵 / 复习模式（SRS）**：SM-2 lite 算法，四档自评（重来 / 困难 / 良好 / 轻松）自动排期，仅拉取到期词组成复习队列。
 - **进度统计**：各词库未学 / 学习中 / 复习中 / 已掌握分布。
 - **设置**：每轮学习词数、正序 / 倒序开关、进度重置、数据路径查看。
+- **截图 / 拍照翻译**（可选功能，需 `translate` feature）：桌面截屏或框选区域 → 本地 OCR（PaddleOCR / MNN）→ HY-MT1.5-1.8B 本地翻译，流式输出译文，可复制 / 加入生词本 / 朗读。**模型按需下载、不随包分发**；默认构建不含此功能，构建前置与用法见 [docs/translate.md](docs/translate.md)。
 
 ---
 
@@ -58,7 +59,7 @@ synstudy/
 │   ├── wordroot.txt          # ECDICT 词根词缀（词根页数据源，含用法讲解 function 字段）
 │   ├── wordroot_zh.tsv       # 词根中文释义自制映射表（root_key → 中文，随代码入库）
 │   └── dicts/*.json          # 分级词表（自定义词库接入方法见 docs/adding-wordlist.md）
-├── docs/                     # 开发文档（新增分级词库指南等）
+├── docs/                     # 开发文档（新增分级词库指南、翻译功能构建指南等）
 ├── license/                  # 外部词典数据的许可证条款文本 + 合规说明
 ├── scripts/
 │   ├── fetch_data.sh         # 一键下载全部源数据（遵循 http(s)_proxy）
@@ -76,12 +77,18 @@ synstudy/
     ├── models.rs             # Word / ZhEntry / Category / WordProgress / ProgressStatus
     ├── state.rs              # Page / Settings / 时间工具
     ├── srs.rs                # SM-2 lite 间隔重复算法（含单元测试）
+    ├── capture.rs            # 桌面截屏（xcap）——仅 translate feature（非移动端）
+    ├── translate/            # 截图/拍照翻译（OCR + HY-MT）——仅 translate feature
+    │   ├── mod.rs            # 后台线程引擎 + 命令 / 消息通道
+    │   ├── models.rs         # 模型清单 / 下载 / SHA-256 校验 / 状态机
+    │   ├── ocr.rs            # rust-paddle-ocr 封装
+    │   └── mt.rs             # llama-cpp-2（HY-MT）封装
     ├── db/
     │   ├── mod.rs            # 词典库路径解析 + 进度库路径
     │   ├── dict_repo.rs      # 只读词典库查询
     │   └── progress_repo.rs  # 可写进度库（建表 / 迁移 / 读写）
     ├── components/           # NavBar / WordCard / WordDetail / ProgressBar / CategoryTile / Splash（移动端启动画面）
-    └── pages/                # dictionary / categories / study / review / stats / settings
+    └── pages/                # dictionary / categories / study / review / stats / settings / translate
 ```
 
 ---
@@ -188,6 +195,8 @@ dx serve --platform desktop   # 开发热重载
 - **Windows**：`%APPDATA%\com.synstudy.synstudy\progress.db`
 
 > 词典库查找顺序：环境变量 `SYNSTUDY_DICT_DB` → 可执行文件同目录 → `./assets/synstudy.db` → `./synstudy.db`。
+
+> **可选「截图 / 拍照翻译」功能**：默认不编译。启用需 `cargo run --release --features translate`，并预装 cmake ≥ 3.22 与 C++ 工具链；模型运行时按需下载（不随包分发）。完整构建 / GPU 后端 / 打包 / 合规说明见 [docs/translate.md](docs/translate.md)。
 
 移动端调试：先 `open -a Simulator`（dx 会复用已启动设备；无已启动设备时它挑最近用过的那台），再：
 
