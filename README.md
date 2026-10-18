@@ -219,6 +219,8 @@ bash scripts/package_macos.sh --no-build  # 跳过构建，仅向已存在的 .a
 
 桌面端 `dx bundle` 会自动把 `assets/`（词典库 + 第三方声明）作为 `[bundle] resources` 打进安装包，无需额外步骤。
 
+> **⚠️ 打包默认不含「截图 / 拍照翻译」**：上面的 `dx bundle` 与 `scripts/package_macos.sh` 都按 **默认 feature** 构建（脚本内部调用 `dx bundle` 时**不会**传 `--features translate`），因此产出的 `.app` / 安装包**没有翻译入口**。这是刻意设计——默认包不拉入 cmake / C++ 工具链与多 GB 依赖。要产出**带翻译**的安装包，须在与 `scripts/check_translate.sh` 相同的工具链环境下给 `dx bundle` 显式加 `--features translate` 再注入图标，完整步骤见 [docs/translate.md](docs/translate.md) 第 4 节「打包带翻译功能的桌面安装包」；模型仍在运行时按需下载、**不随包分发**。
+
 #### iOS 模拟器
 
 ```bash

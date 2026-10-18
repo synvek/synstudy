@@ -145,6 +145,58 @@ feature 一览（见 `Cargo.toml`）：
 > **单元测试**：`mt.rs` 的提示词模板测试仅在 feature 开启时编入，运行
 > `cargo test --features translate`。默认 `cargo test` 不含翻译测试。
 
+### 打包带翻译功能的桌面安装包
+
+⚠️ **默认打包不含本功能**。README「打包发布」里的 `dx bundle` 与
+`scripts/package_macos.sh` 都按**默认 feature** 构建：`package_macos.sh` 内部调用
+`dx bundle` 时**没有**传 `--features translate`，所以产出的 `.app` / 安装包**没有截图
+翻译入口**（页面走「功能未编入」的降级分支）。这是刻意的——默认包不拉入
+cmake / C++ 工具链与多 GB 依赖，也不影响 CI 与移动端。
+
+要产出**带翻译**的 macOS 安装包，必须在与 `scripts/check_translate.sh` **相同的
+工具链环境**下给 `dx bundle` 显式加 `--features translate`（否则会同样踩到
+「PATH 上第一个 clang 是 Android NDK clang → 找不到 `stdio.h` / `functional`」等坑，
+见第 8 节），再用打包脚本注入品牌图标：
+
+```bash
+# 1) 带 translate 打包（工具链环境与 check_translate.sh 一致）
+SDK="$(xcrun --show-sdk-path)"
+SDKROOT="$SDK" CC=/usr/bin/clang CXX=/usr/bin/clang++ \
+CFLAGS="-isysroot $SDK" CXXFLAGS="-isysroot $SDK" \
+BINDGEN_EXTRA_CLANG_ARGS="-isysroot $SDK" \
+LIBCLANG_PATH="/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib" \
+CARGO_NET_GIT_FETCH_WITH_CLI=true \
+dx bundle --release --features translate
+
+# 2) 注入品牌图标并用打过补丁的 .app 重建 dmg（--no-build：跳过重复的 dx bundle）
+bash scripts/package_macos.sh --no-build
+```
+
+说明：
+
+- **模型不随包分发**：带翻译的包与默认包在 `[bundle] resources`（词典库 +
+  第三方声明）上一致，仅二进制多编入了 feature；OCR / HY-MT 模型仍由用户首次
+  使用时按需下载到应用数据目录（见第 5 节），安装包体积不受影响。
+- **图标注入与 dmg 重建**：`dx bundle` 自产的 `Synstudy.icns` 并不可靠——除现代 PNG
+  表示外还混入了**长度不合规范的 legacy 位图表示**（is32/il32/it32 + 1-bit 掩码对，
+  实测 2026-10 dx 0.8.0-alpha.1）。IconServices 会扫描并合并 Resources 下**全部** .icns
+  的表示，坏 legacy 条目会污染小尺寸渲染（16/24px 发糊、白环、右下角调色板垃圾色块，
+  大尺寸走正常 PNG 表示故 Dock/启动台看不出问题）；且 dmg 是 bundle 时就把当时的
+  .app 打进去了，晚于注入。故 `inject_macos_icon.py` 注入 iconutil 规范产的 `icon.icns`
+  时会**顺手删除 bundle 里其它 .icns**；`package_macos.sh`（含 `--no-build`）随后用打过
+  补丁的 .app **自动重建/生成 dmg**（hdiutil UDZO，含 /Applications 拖拽链，先写临时
+  文件再原子覆盖），特例用 `--no-dmg` 跳过。注意别被 `iconutil -c iconset` 的像素比对
+  骗到：它只解现代 PNG 条目、无视残缺 legacy 条目。另：系统图标缓存粘滞，装新包后
+  Finder 仍显旧图标时执行 `sudo rm -rf /Library/Caches/com.apple.iconservices.store && killall Dock Finder`；
+  圆角图标外围那圈浅色光晕是 macOS 标准投影（系统 App 同样如此），不是 bug。
+- **Windows / Linux**：同理，把 `--features translate` 换成 `translate-vulkan` /
+  `translate-cuda` 并满足第 3 节的原生依赖；`dx bundle` 直接产出 `.msi` / `.deb`，
+  但图标注入脚本目前**仅 macOS**。
+- **退出崩溃（macOS）**：带翻译的包关闭时若报 `GGML_ASSERT([rsets->data count] == 0)`
+  + `Abort trap: 6`，是常驻的 llama/Metal 资源未在进程 `exit()` 前释放；已在
+  `translate/mod.rs` 用有序注册的 `libc::atexit` 钩子（首次加载模型后 arm，确保在
+  ggml 的 Metal device 析构前跑）释放常驻模型修复。
+
 ---
 
 ## 5. 模型：按需下载与管理
