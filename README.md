@@ -67,6 +67,8 @@ synstudy/
 │   ├── gen_notices.py        # 从 license/README.md 生成 THIRD-PARTY-NOTICES.txt
 │   ├── gen_icons.py          # 从 assets/logo.svg 提取并生成各平台应用图标（含 macOS .icns）
 │   ├── build_dict_db.py      # 数据管线：CSV + JSON -> assets/synstudy.db（构建末尾自动生成声明）
+│   ├── check_translate.sh     # macOS 本地构建带截图翻译功能（Metal）：配好 Apple clang + -isysroot
+│   ├── check_translate.ps1    # Windows 本地构建带截图翻译功能（Vulkan）：导入 MSVC 开发者环境 + 探测 Vulkan SDK
 │   ├── package_macos.sh      # macOS 打包：dx bundle + 注入品牌图标 icon.icns（dx 不自产图标）
 │   ├── package_ios.sh        # iOS 模拟器打包：构建 + 注入词典库 +（可选）simctl 安装启动
 │   ├── package_android.sh    # Android 打包：构建 + 注入 assets/ + noCompress 补丁 + gradlew 出 APK
@@ -100,6 +102,11 @@ synstudy/
 - Rust 1.80+（`rustup` 安装）
 - Python 3.8+（用于数据构建脚本）
 - 可选：[`dx` CLI](https://dioxuslabs.com/learn/0.8/getting_started)（`cargo install dioxus-cli --version 0.8.0-alpha.1 --locked`）用于移动端打包与安装包生成，**须与 Cargo 里的 dioxus 同为 0.8 线**
+
+> **Windows**：`rustup` 默认 `*-pc-windows-msvc` 工具链，需装 Visual Studio 的「使用 C++
+> 的桌面开发」工作负载（或 Build Tools）提供 `link.exe`；桌面 WebView 依赖 **WebView2 运行时**
+> （Win10/11 一般已内置）。可选地用预编的 GNU 工具链（`*-pc-windows-gnu`）避开 MSVC，但项目
+> 默认按 MSVC 验证。具体打包步骤见下文「打包发布 → 桌面 → Windows」。
 
 ### 1. 准备词典数据
 
@@ -196,7 +203,7 @@ dx serve --platform desktop   # 开发热重载
 
 > 词典库查找顺序：环境变量 `SYNSTUDY_DICT_DB` → 可执行文件同目录 → `./assets/synstudy.db` → `./synstudy.db`。
 
-> **可选「截图 / 拍照翻译」功能**：默认不编译。启用需 `cargo run --release --features translate`，并预装 cmake ≥ 3.22 与 C++ 工具链；模型运行时按需下载（不随包分发）。完整构建 / GPU 后端 / 打包 / 合规说明见 [docs/translate.md](docs/translate.md)。
+> **可选「截图 / 拍照翻译」功能**：默认不编译。启用需 `cargo run --release --features translate`（macOS 自动带 Metal），并预装 cmake ≥ 3.22 与 C++ 工具链；**Windows / Linux 走 Vulkan**（`--features translate-vulkan`，需装 Vulkan SDK），Windows 可直接用 `powershell -File scripts\check_translate.ps1`（自动导入 MSVC 开发者环境 + 探测 Vulkan SDK）。模型运行时按需下载（不随包分发）。完整构建 / GPU 后端 / 打包 / 合规说明见 [docs/translate.md](docs/translate.md)。
 
 移动端调试：先 `open -a Simulator`（dx 会复用已启动设备；无已启动设备时它挑最近用过的那台），再：
 
@@ -207,19 +214,55 @@ bash scripts/package_ios.sh --no-build   # 向最近一次构建的 .app 补注�
 
 ### 4. 打包发布
 
-#### 桌面（macOS / Windows / Linux）
+#### 桌面
+
+通用（在仓库根执行）：
 
 ```bash
 dx build --release          # 编译 release 二进制
-dx bundle --release         # 生成平台安装包（.app / .msi / .deb 等）
-bash scripts/package_macos.sh          # macOS：dx bundle + 注入品牌图标（icon.icns）
-bash scripts/package_macos.sh --debug  # debug 打包
-bash scripts/package_macos.sh --no-build  # 跳过构建，仅向已存在的 .app 注入图标
+dx bundle --release         # 生成平台安装包（.app / *-setup.exe / .deb 等）
 ```
 
 桌面端 `dx bundle` 会自动把 `assets/`（词典库 + 第三方声明）作为 `[bundle] resources` 打进安装包，无需额外步骤。
 
+##### macOS
+
+```bash
+bash scripts/package_macos.sh          # dx bundle + 注入品牌图标（icon.icns）
+bash scripts/package_macos.sh --debug  # debug 打包
+bash scripts/package_macos.sh --no-build  # 跳过构建，仅向已存在的 .app 注入图标
+```
+
+产出 `.app` 与 `.dmg`。图标由 `scripts/inject_macos_icon.py` 注入（dx 自产的 `.icns` 不可靠）。
+
+##### Windows
+
+前置：安装 Visual Studio 的「使用 C++ 的桌面开发」工作负载（或 Build Tools）——`rustup` 默认的 `*-pc-windows-msvc` 工具链需要 `link.exe`；WebView2 运行时 Win10/11 一般已内置，缺失时再装 [Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。
+
+```powershell
+# 普通 PowerShell 即可，无需 Developer 控制台（cargo 会自动经 MSVC 链接）
+cargo install dioxus-cli --version 0.8.0-alpha.1 --locked   # 首次装 dx CLI
+dx build --release --platform windows                        # 编译 release 二进制
+dx bundle --release                                          # 产出 NSIS 安装器
+# 结果：target\dx\synstudy\bundle\windows\Synstudy-<版本>-setup.exe
+```
+
+> - dx 在 Windows 默认**只产 NSIS `*-setup.exe`**（`.msi` 未启用）；bundle 目录里的裸 `synstudy.exe` 不是安装器、不带词典库，别拿去分发。
+> - 图标注入脚本目前**仅 macOS**；Windows 由 dx 用 `Dioxus.toml` 的 `[bundle] icon`（`assets/icons/app-icon.png`）生成 `.ico` 内嵌，无额外脚本。
+> - 若要 CI 出包，见 `.github/workflows/build-installers.yml`（win-x64 / win-arm64 各自在匹配架构的 runner 上原生 `dx bundle`）。
+
+##### Linux
+
+```bash
+dx bundle --release --package-types deb --package-types appimage   # 产出 .deb + .AppImage
+```
+
+> 需系统 WebKitGTK 等依赖（`libwebkit2gtk-4.1-dev` / `libxdo-dev` 等，随发行版包名不同）；CI 的具体装法见上面的 workflow 文件。
+
 > **⚠️ 打包默认不含「截图 / 拍照翻译」**：上面的 `dx bundle` 与 `scripts/package_macos.sh` 都按 **默认 feature** 构建（脚本内部调用 `dx bundle` 时**不会**传 `--features translate`），因此产出的 `.app` / 安装包**没有翻译入口**。这是刻意设计——默认包不拉入 cmake / C++ 工具链与多 GB 依赖。要产出**带翻译**的安装包，须在与 `scripts/check_translate.sh` 相同的工具链环境下给 `dx bundle` 显式加 `--features translate` 再注入图标，完整步骤见 [docs/translate.md](docs/translate.md) 第 4 节「打包带翻译功能的桌面安装包」；模型仍在运行时按需下载、**不随包分发**。
+>
+> - **macOS**（Metal 自动启用）：`dx bundle --release --features translate` + `bash scripts/package_macos.sh --no-build`（工具链环境变量详见 `scripts/check_translate.sh`）。
+> - **Windows**（Vulkan）：一键 `powershell -ExecutionPolicy Bypass -File scripts\check_translate.ps1 bundle -Release`（内部 `dx bundle --release --features translate-vulkan`，自动配好 MSVC + Vulkan SDK + CMake 生成器锚定）。仓库路径偏深时脚本会自动把构建目录搬到短 base（`CARGO_TARGET_DIR=C:\dst`，否则 llama.cpp 的 Vulkan 子项目会超 CMake 250 字符路径安全上限），此时安装包落在 `C:\dst\dx\synstudy\bundle\windows\`；`-KeepTargetDir` 可关。
 
 #### iOS 模拟器
 

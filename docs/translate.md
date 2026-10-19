@@ -14,7 +14,7 @@
 | 阶段 | 平台 | 状态 |
 | --- | --- | --- |
 | Phase 1 | macOS（Metal） | **代码已落地**，`cargo check --features translate` 在 Apple silicon macOS 上**编译全绿**；运行时端到端（截屏→框选→OCR→译文）待实机点验 |
-| Phase 2 | Windows / Linux（Vulkan，可选 CUDA） | 未验证（`translate-vulkan` / `translate-cuda` 已预留） |
+| Phase 2 | Windows / Linux（Vulkan，可选 CUDA） | **构建入口已补齐**：`translate-vulkan` feature（→ `llama-cpp-2/vulkan`，编 `GGML_VULKAN=ON`）已接通，Windows 侧提供 `scripts/check_translate.ps1` 一键配好 MSVC + Vulkan SDK 工具链。端到端仍需在装有 Vulkan SDK 与 ≥ 一款 Vulkan 显卡的实机上点验 |
 | Phase 3 | iOS / Android（Metal / CPU-NEON） | 未实现（图片输入改相机 / 相册，入口挂到 hub） |
 
 Phase 1 已实现：`translate` feature + 桌面截屏 + OCR + HY-MT 翻译全链路 + 模型
@@ -78,7 +78,14 @@ C++**，因此构建机 / CI 需预装：
 - **Linux**：`cmake`、`clang`/`gcc`、`pkg-config`；截屏需 X11 / Wayland 开发库
   （`libxcb`、`libxrandr`、`libdbus`、`wayland-client` 等，随发行版包名不同）；
   Vulkan 后端需 Vulkan 加载器与 `glslc`（Vulkan SDK / `shaderc`）。
-- **Windows**：MSVC 构建工具 + `cmake`；Vulkan 后端需安装 Vulkan SDK。
+- **Windows**：MSVC 构建工具（VS 2017+「使用 C++ 的桌面开发」工作负载，或 Build Tools）
+  + `cmake`；Vulkan 后端需从 LunarG 安装 **Vulkan SDK**（勾选「Add to PATH」，安装器会设
+  `VULKAN_SDK`）。llama.cpp 的 `build.rs` 在 Windows 上会**硬性读取 `VULKAN_SDK`**
+  定位头文件与 `%VULKAN_SDK%\Lib\vulkan-1.lib`（未设置直接 panic），并用
+  `%VULKAN_SDK%\Bin\glslc` 把 GLSL 着色器编成 SPIR-V。**普通 PowerShell 里没有
+  `cl.exe`**（MSVC 只在「Developer PowerShell for VS」中才在 PATH 上），因此请直接用
+  `scripts/check_translate.ps1`（自动 `vswhere` 定位 VS、导入 vcvars、探测 Vulkan SDK），
+  原理见第 4 节。
 - **CUDA（可选）**：需 CUDA Toolkit，且用 clang 作为主机编译器。
 
 ---
@@ -106,6 +113,34 @@ cargo run --release --features translate-cuda
 > ggml / MNN 的 C/C++ 时报 `fatal error: 'stdio.h' / 'functional' file not found`。
 > 脚本强制改用 Apple clang 并显式传 `-isysroot $(xcrun --show-sdk-path)`，把 bindgen
 > 指向 Xcode 自带 libclang，一次性绕开这些坑（原理见第 8 节排查表）。
+
+> **Windows 本地构建请用 `scripts/check_translate.ps1`**（Vulkan 后端，等价于 macOS 的
+> `check_translate.sh`）：
+>
+> ```powershell
+> # 在仓库根，普通 PowerShell 即可（脚本会自行导入 MSVC 开发者环境与 Vulkan SDK）
+> powershell -ExecutionPolicy Bypass -File scripts\check_translate.ps1 check          # cargo check --features translate-vulkan
+> powershell -ExecutionPolicy Bypass -File scripts\check_translate.ps1 build -Release # cargo build --release --features translate-vulkan
+> powershell -ExecutionPolicy Bypass -File scripts\check_translate.ps1 run           # cargo run --features translate-vulkan
+> powershell -ExecutionPolicy Bypass -File scripts\check_translate.ps1 env           # 只自检工具链（cl/cmake/glslc/VULKAN_SDK），不构建
+> powershell -ExecutionPolicy Bypass -File scripts\check_translate.ps1 pin           # 首次构建报 E0106/E0308 时，把 mnn 固定回 v1.4.2 兼容 rev
+> ```
+>
+> 脚本做的事：① `vswhere` 枚举装了 MSVC x64 工具的 Visual Studio，选「本机 CMake
+> 认识其生成器的最高版本」（如 VS 2022）并运行 `VsDevCmd.bat -arch=amd64` 导入
+> `cl.exe`/Windows SDK，同时把 `CMAKE_GENERATOR` 锁定（有 ninja 优先 Ninja，避开 VS 多配置
+> 生成器在 Rust build script 下的子项目探测坑），并向 `CMAKE_C/CXX_FLAGS` 环境变量追加
+> `/FS`（防并发 cl.exe 写同一 PDB 报 C1041）；② 探测 Vulkan SDK（`VULKAN_SDK` 未设时在
+> `C:\VulkanSDK\*` 与注册表里找最新版）并把 `%VULKAN_SDK%\Bin` 加进 PATH 供 `glslc` 使用；
+> ③ bindgen 工具链同源对齐：探测含 `libclang.dll` 的完整 LLVM 安装（已有 `LIBCLANG_PATH` →
+> 常见 LLVM 目录 → VS 的 C++ Clang 组件），把它的 bin 前置到 PATH 并回设 `LIBCLANG_PATH`，
+> 避开 AMD ROCm 抢先把自家 clang 头文件塞给 bindgen 造成的 `__builtin_ia32_*` 未声明错误；
+> ④ 仓库路径偏深时（llama Vulkan 子项目中间路径超 CMake 250 字符安全上限）自动把构建
+> 目录搬到短 base（设 `CARGO_TARGET_DIR=C:\dst`，dx/cargo 都优先读它；`-TargetDir <路径>`
+> 可指定、`-KeepTargetDir` 可关闭）；④ 设 `CARGO_NET_GIT_FETCH_WITH_CLI=true` 后用系统
+> git 拉 `rust-paddle-ocr`/`mnn` git 源。若本机是 NVIDIA 显卡且装了 CUDA Toolkit，把
+> `-Feature translate-cuda` 覆盖默认后端即可。首次 clean 构建前请先跑一次 `pin`（本仓库
+> 不跟踪 `Cargo.lock`，`mnn` 浮动 git 依赖会漂到破坏性 HEAD，详见第 8 节）。
 
 feature 一览（见 `Cargo.toml`）：
 
@@ -190,8 +225,21 @@ bash scripts/package_macos.sh --no-build
   Finder 仍显旧图标时执行 `sudo rm -rf /Library/Caches/com.apple.iconservices.store && killall Dock Finder`；
   圆角图标外围那圈浅色光晕是 macOS 标准投影（系统 App 同样如此），不是 bug。
 - **Windows / Linux**：同理，把 `--features translate` 换成 `translate-vulkan` /
-  `translate-cuda` 并满足第 3 节的原生依赖；`dx bundle` 直接产出 `.msi` / `.deb`，
-  但图标注入脚本目前**仅 macOS**。
+  `translate-cuda` 并满足第 3 节的原生依赖。**Windows 直接用打包模式**（需先装 dx CLI，
+  脚本会复用与构建相同的 MSVC + Vulkan SDK 工具链环境）：
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\check_translate.ps1 bundle -Release
+  ```
+
+  等价于 `dx bundle --release --features translate-vulkan`，产物落在
+  `target\dx\synstudy\bundle\windows\`（若脚本触发了短 base 搬家，则在
+  `C:\dst\dx\synstudy\bundle\windows\`，脚本会打印实际位置；dx 默认只产 NSIS
+  `*-setup.exe`，`.msi` 未启用）。
+  Linux 则手动跑 `dx bundle --release --features translate-vulkan` 产出 `.deb`。
+  注意：图标注入脚本目前**仅 macOS**，Windows/Linux 的 dx 自产图标不额外处理。运行时
+  需要 `vulkan-1.dll`（随显卡驱动装于 System32，一般无需随包分发）；若目标机无
+  Vulkan 兼容 GPU，llama.cpp 会自动回退 CPU（`translate_gpu` 设置项控制是否卸载到 GPU）。
 - **退出崩溃（macOS）**：带翻译的包关闭时若报 `GGML_ASSERT([rsets->data count] == 0)`
   + `Abort trap: 6`，是常驻的 llama/Metal 资源未在进程 `exit()` 前释放；已在
   `translate/mod.rs` 用有序注册的 `libc::atexit` 钩子（首次加载模型后 arm，确保在
@@ -287,6 +335,14 @@ logits 实现以最小化 FFI 面积。
 | --- | --- |
 | 构建报 `cmake: command not found` | 安装 cmake ≥ 3.22（macOS：`brew install cmake`） |
 | C++ 编译失败 / 找不到编译器 | 装 Xcode CLT（macOS）/ MSVC Build Tools（Win）/ gcc·clang（Linux） |
+| Windows：`linker cl.exe not found` / 报找不到 `cl` | 普通 PowerShell 无 MSVC 环境。用 `scripts\check_translate.ps1`（自动导入 vcvars），或从「Developer PowerShell for VS」运行 |
+| Windows：CMake 报 `Could not create named generator Visual Studio 18 2026` | 装了 VS 2026(v18) 但本机 CMake < 4.2（该生成器 4.2 才加入），cmake crate 的 vswhere `-latest` 探测选中了 v18。`check_translate.ps1` 会把生成器锚定到本机 CMake 认识的 VS（如 2022），有 ninja 则优先 Ninja；也可 `-CMakeGenerator 'Visual Studio 17 2022'` 手动指定。同目录不能换生成器，切换后需删掉旧 build/fingerprint 目录重跑 |
+| Windows Vulkan：build.rs panic `Please install Vulkan SDK and ensure that VULKAN_SDK env variable is set` | 未装 Vulkan SDK，或 `VULKAN_SDK` 未设。装 SDK 并勾选 Add to PATH；`check_translate.ps1` 会在 `VULKAN_SDK` 缺失时自动到 `C:\VulkanSDK\*` 与注册表里找最新版 |
+| Windows Vulkan：`vulkan-shaders-gen` / `glslc` 找不到，或 SPIR-V 生成失败 | `%VULKAN_SDK%\Bin` 不在 PATH（`glslc` 在那里）。用 `check_translate.ps1`（会拼入 PATH），或手动 `$env:PATH="$env:VULKAN_SDK\Bin;$env:PATH"` |
+| Windows：Ninja 高并发下 `fatal error C1041`（多个 cl.exe 写同一 vc140.pdb） | 需 `/FS`。注意 llama 的 `vulkan-shaders-gen` 是 ExternalProject 子项目，configure 时不继承父级 flags，只能从同名环境变量初始化缓存——`check_translate.ps1` 已向 `CMAKE_C/CXX_FLAGS` 追加 `/FS`；手动构建时记得同样设置 |
+| Windows：子项目 configure 报 `loading 'CMakeFiles\rules.ninja': The system cannot find the file specified` 或 MSB8066，伴随 CMake warning「has NNN characters / maximum 250」 | 仓库路径偏深：llama Vulkan 子项目的 try-compile 中间路径超 CMake 250 安全上限 / Win32 260 限制，文件实际打不开。`check_translate.ps1` 检测到偏深会自动把构建目录搬到短 base（`CARGO_TARGET_DIR=C:\dst`，省 ~24 字符）；`-TargetDir` 可指定、`-KeepTargetDir` 可关闭。搬后首次会全量重编；安装包随 base 落到 `C:\dst\dx\synstudy\bundle\windows\` |
+| Windows：`FileTracker : error FTK1011` / 路径过长（NMAKE / MSBuild） | llama.cpp build.rs 已对 MSVC 设 `TrackFileAccess=false` 并加 `/FS`；仍现则同上「rules.ninja 找不到」行（短 base 搬家），或把仓库放到盘符浅路径（如 `C:\work\synstudy`）以避开 PATH_MAX |
+| Windows：运行时弹窗缺 `vulkan-1.dll` | 目标机未装 Vulkan 兼容显卡驱动。升级驱动即可（`vulkan-1.dll` 随驱动入 System32）；无 GPU 时 llama.cpp 自动回退 CPU |
 | macOS 报 `'stdio.h' file not found`（ggml）或 `'functional' file not found`（MNN `Interpreter.hpp`） | 根因是 **PATH 上第一个 clang 是 Android NDK clang**（面向 Android，不会自动定位 macOS SDK 头文件），**且项目 `.cargo/config.toml` 用 `force=true` 清空了 `SDKROOT`/`C_INCLUDE_PATH`**，所以仅 `export SDKROOT` 无效。用 `bash scripts/check_translate.sh` 构建（强制 `CC/CXX=/usr/bin/clang(++)` + 命令行显式 `-isysroot $(xcrun --show-sdk-path)`）。手动等价：`SDK=$(xcrun --show-sdk-path); CC=/usr/bin/clang CXX=/usr/bin/clang++ CFLAGS="-isysroot $SDK" CXXFLAGS="-isysroot $SDK" BINDGEN_EXTRA_CLANG_ARGS="-isysroot $SDK" LIBCLANG_PATH="/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib" cargo check --features translate` |
 | bindgen 报泛化的 `libclang error`（llama / MNN） | **别往 `BINDGEN_EXTRA_CLANG_ARGS` 里加 `-std=c++17`**：它会被无差别套用到 C 头文件（llama 的 `wrapper.h`），clang 报 `'-std=c++17' not allowed with 'C'`。全局参数只放语言中立的 `-isysroot`，各 crate 自带其 C++ 标准（MNN 内部 c++14）。并确认 `LIBCLANG_PATH` 指向 Xcode 或 CommandLineTools 的 `libclang.dylib` |
 | `rust-paddle-ocr` 编译报 `E0106 missing lifetime specifier`（`mnn::Session`）或 `E0308`（`copy_from_host_tensor` 参数类型） | 传递依赖 `mnn`（`aftershootco/mnn-rs`）的上游 API 在漂移，`rust-paddle-ocr` v1.4.2 只兼容特定 rev。**`Cargo.lock` 已把 `mnn`/`mnn-sys` 固定到 `1a275e70`（v1.4.2 自身 lock 所指的 rev）**。别随手 `cargo update`（会把 mnn 拉回带 `Session<'i>` 生命周期的新版）；若不小心动了，执行 `cargo update -p mnn --precise 1a275e70336d2f21603a41b22b3b257bc3b49333` 复原。注：`[patch]` 同 URL 换 rev、或直接加 `mnn={rev=…}` 依赖都不行（分别报「patches must point to different sources」与 `links="mnn"` 冲突），只有 `cargo update --precise` 能原地改写单条 lock 项 |
