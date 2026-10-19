@@ -86,9 +86,9 @@ pub struct DictLookup(pub Signal<Option<String>>);
 /// UI color scheme preference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Theme {
-    /// Follow the OS `prefers-color-scheme`.
-    System,
+    /// Follow the OS `prefers-color-scheme`. Default for fresh installs.
     #[default]
+    System,
     Light,
     Dark,
 }

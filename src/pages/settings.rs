@@ -177,6 +177,52 @@ pub fn SettingsPage() -> Element {
             div { class: "page-head", h1 { "设置" } }
 
             section { class: "setting-group",
+                h3 { "外观" }
+                div { class: "setting-row",
+                    label { "主题" }
+                    div { class: "seg",
+                        for t in [Theme::System, Theme::Light, Theme::Dark] {
+                            button {
+                                key: "{t:?}",
+                                class: if cur.theme == t { "seg-btn active" } else { "seg-btn" },
+                                onclick: {
+                                    let mut persist = persist.clone();
+                                    move |_| {
+                                        let mut s = settings.read().clone();
+                                        s.theme = t;
+                                        persist(s);
+                                    }
+                                },
+                                "{t.label()}"
+                            }
+                        }
+                    }
+                }
+                div { class: "setting-row",
+                    label { "字体大小" }
+                    div { class: "seg",
+                        for f in FontScale::all() {
+                            button {
+                                key: "{f:?}",
+                                class: if cur.font_scale == *f { "seg-btn active" } else { "seg-btn" },
+                                onclick: {
+                                    let mut persist = persist.clone();
+                                    let f = *f;
+                                    move |_| {
+                                        let mut s = settings.read().clone();
+                                        s.font_scale = f;
+                                        persist(s);
+                                    }
+                                },
+                                "{f.label()}"
+                            }
+                        }
+                    }
+                }
+                p { class: "muted hint", "真机上若觉得文字偏小可调大档位；界面（含按钮与间距）会整体等比放大，选择即时生效并记住。" }
+            }
+
+            section { class: "setting-group",
                 h3 { "学习" }
 
                 div { class: "setting-row",
@@ -222,52 +268,6 @@ pub fn SettingsPage() -> Element {
                     }
                 }
                 p { class: "muted hint", "学习顺序与每轮数量会记住，也可在学习页顶随时切换。随机顺序每轮重新打散。" }
-            }
-
-            section { class: "setting-group",
-                h3 { "外观" }
-                div { class: "setting-row",
-                    label { "主题" }
-                    div { class: "seg",
-                        for t in [Theme::System, Theme::Light, Theme::Dark] {
-                            button {
-                                key: "{t:?}",
-                                class: if cur.theme == t { "seg-btn active" } else { "seg-btn" },
-                                onclick: {
-                                    let mut persist = persist.clone();
-                                    move |_| {
-                                        let mut s = settings.read().clone();
-                                        s.theme = t;
-                                        persist(s);
-                                    }
-                                },
-                                "{t.label()}"
-                            }
-                        }
-                    }
-                }
-                div { class: "setting-row",
-                    label { "字体大小" }
-                    div { class: "seg",
-                        for f in FontScale::all() {
-                            button {
-                                key: "{f:?}",
-                                class: if cur.font_scale == *f { "seg-btn active" } else { "seg-btn" },
-                                onclick: {
-                                    let mut persist = persist.clone();
-                                    let f = *f;
-                                    move |_| {
-                                        let mut s = settings.read().clone();
-                                        s.font_scale = f;
-                                        persist(s);
-                                    }
-                                },
-                                "{f.label()}"
-                            }
-                        }
-                    }
-                }
-                p { class: "muted hint", "真机上若觉得文字偏小可调大档位；界面（含按钮与间距）会整体等比放大，选择即时生效并记住。" }
             }
 
             section { class: "setting-group",
