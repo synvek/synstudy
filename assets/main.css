@@ -77,6 +77,15 @@
 
 * { box-sizing: border-box; }
 
+/* <button>/<input>/<select>/<textarea> are native controls: they do NOT
+   inherit the page text color and fall back to a UA default that stays dark
+   (near-black) in dark mode — unreadable on our dark panels (.result rows in
+   the dictionary / roots lists, .round-cell tiles, icon buttons like
+   .wd-speak / .dict-back). Inheriting fixes the whole class of omissions at
+   once; classes that do set a color (.btn, .pill, .nav-btn, …) still win on
+   specificity, and in light mode --text ≈ the old UA black, so no regressions. */
+button, input, select, textarea { color: inherit; }
+
 html, body, #main, .app {
   height: 100%;
   margin: 0;
