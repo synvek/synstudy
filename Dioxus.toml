@@ -14,7 +14,7 @@ asset_dir = "assets"
 [bundle]
 identifier = "com.synvek.synstudy"
 publisher = "synvek"
-version = "0.1.0"
+version = "1.1.0"
 # App icon source (1024px PNG, the branded master generated from
 # assets/logo.svg by scripts/gen_icons.py). NOTE: dx 0.8.0-alpha.1 does NOT
 # bundle a usable icon on any platform -- macOS writes/omits CFBundleIconFile

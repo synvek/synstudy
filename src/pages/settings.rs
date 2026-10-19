@@ -771,8 +771,8 @@ fn AboutOverlay(
                         p { class: "muted hint", "对外分发含 CC-BY-SA 成分的数据（如 zh_entries / examples 表）时，该部分演绎数据须以 CC-BY-SA 4.0 相同许可共享；本项目源代码不受其传染。随附的开源构建脚本（scripts/）可自助重建数据库。" }
                         p { class: "muted hint", "本项目不分发也不爬取 CET/TEM/TOEFL/GRE 等受版权保护的真题内容；考试级别仅基于开放的 ECDICT 考纲元数据自行标注。" }
                         if !TRANSLATE_LICENSES.is_empty() {
-                            h3 { "翻译组件许可（可选功能）" }
-                            p { "以下组件仅在启用「翻译」功能时使用：推理引擎（MNN / llama.cpp）随程序静态链接，模型权重（PaddleOCR / HY-MT）由你在运行时从官方源下载，synstudy 不随包再分发任何模型。" }
+                            h3 { "翻译组件许可" }
+                            p { "以下组件在启用「翻译」功能时使用：推理引擎（MNN / llama.cpp），模型权重（PaddleOCR / HY-MT）在运行时下载。" }
                             { license_docs_view(TRANSLATE_LICENSES, open) }
                         }
                     }

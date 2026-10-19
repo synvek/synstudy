@@ -38,7 +38,6 @@ mod imp {
     use crate::state::{now_ts, Settings, SETTINGS_KEY};
     use crate::translate::models::{self, ModelStatus, MT_MODEL, OCR_DET};
     use crate::translate::{engine, Command, Msg, TextRequest, TranslateRequest, LANGS};
-    use crate::tts;
 
     /// Context window for the MT model: smaller on mobile to save RAM.
     fn default_n_ctx() -> u32 {
@@ -403,14 +402,6 @@ mod imp {
             ));
         };
 
-        let rate = settings.read().tts_rate;
-        let do_speak = move |_| {
-            let text = ui.read().translation.clone();
-            if settings.read().tts_enabled {
-                tts::speak(&text, rate);
-            }
-        };
-
         let do_wordbook = {
             let progress = progress.clone();
             let dict = dict.clone();
@@ -610,7 +601,6 @@ mod imp {
                             }
                             button { class: "btn small", onclick: do_copy, "复制" }
                             button { class: "btn small", onclick: do_wordbook, "加入生词本" }
-                            button { class: "btn small ghost", onclick: do_speak, "朗读" }
                         }
                     }
                 }
