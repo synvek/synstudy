@@ -536,20 +536,27 @@ mod imp {
                 p { class: "muted status", "{cur.status}" }
 
                 div { class: "translate-grid",
-                    // Left/top: screenshot preview + ROI overlay.
+                    // Left/top: screenshot preview + ROI overlay. On desktop the
+                    // pane is a flex column: .shot-scroll takes the remaining
+                    // height and scrolls the natural-size capture internally,
+                    // while .roi-editor sits below it as an always-visible
+                    // footer (never overlapping the image). On mobile the pane
+                    // itself scrolls and the editor stays in flow under the img.
                     div { class: "translate-preview scroll",
                         if let Some(uri) = preview() {
-                            div {
-                                class: "shot",
-                                onmousedown: on_down,
-                                onmousemove: on_move,
-                                onmouseup: on_up,
-                                onmouseleave: on_up,
-                                img { class: "shot-img", src: "{uri}", alt: "截图预览", draggable: "false" }
-                                if let Some((x, y, w, h)) = roi() {
-                                    div {
-                                        class: "roi",
-                                        style: "left:{x}px;top:{y}px;width:{w}px;height:{h}px"
+                            div { class: "shot-scroll",
+                                div {
+                                    class: "shot",
+                                    onmousedown: on_down,
+                                    onmousemove: on_move,
+                                    onmouseup: on_up,
+                                    onmouseleave: on_up,
+                                    img { class: "shot-img", src: "{uri}", alt: "截图预览", draggable: "false" }
+                                    if let Some((x, y, w, h)) = roi() {
+                                        div {
+                                            class: "roi",
+                                            style: "left:{x}px;top:{y}px;width:{w}px;height:{h}px"
+                                        }
                                     }
                                 }
                             }

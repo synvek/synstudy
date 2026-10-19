@@ -1022,7 +1022,7 @@ h1, h2, h3, h4 { color: var(--text); }
 .select:focus { border-color: var(--primary); }
 .translate-grid {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 18px; align-items: start;
+  gap: 18px; align-items: start; margin-bottom: 18px;
 }
 .translate-preview {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
@@ -1068,4 +1068,39 @@ h1, h2, h3, h4 { color: var(--text); }
 .translate .ok { color: var(--success); font-size: 13px; font-weight: 500; }
 @media (max-width: 820px) {
   .translate-grid { grid-template-columns: minmax(0, 1fr); }
+}
+/* Keep the ROI editor out of the image scroller: on desktop .shot-scroll
+   (not the pane) scrolls the natural-size capture, so .roi-editor sits in
+   normal flow below it — always visible, never overlapping, and immune to
+   both scroll axes. On mobile the pane itself scrolls and the editor stays
+   in flow under the image, as before. */
+.shot-scroll { line-height: 0; }
+/* Desktop (two-column): lock the translate page to the exact height of
+   .content. Key detail — grid-template-rows must be minmax(0, 1fr): with an
+   auto row, the natural-size screenshot decides the row height and overflows
+   the flex:1 container, bringing back a page-level scrollbar. With the row
+   clamped, the preview/result panes fill it and scroll internally instead. */
+@media (min-width: 821px) {
+  .page.translate {
+    display: flex; flex-direction: column;
+    height: 100%; min-height: 0;
+  }
+  .page.translate .translate-grid {
+    flex: 1 1 auto; min-height: 0; align-items: stretch;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .page.translate .translate-preview {
+    max-height: none; min-height: 0;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  /* The image area alone scrolls (both axes); the ROI editor below is a
+     fixed-height footer of the pane. Drag coords still map 1:1 to image
+     pixels because .shot keeps its natural size inside .shot-scroll. */
+  .page.translate .shot-scroll {
+    flex: 1 1 auto; min-height: 0; overflow: auto;
+  }
+  .page.translate .roi-editor { flex: 0 0 auto; }
+  .page.translate .translate-result {
+    min-height: 0; overflow-y: auto;
+  }
 }
