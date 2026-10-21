@@ -29,6 +29,8 @@ pub fn Translate() -> Element {
 mod imp {
     use std::time::Duration;
 
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    use base64::Engine as _;
     use dioxus::prelude::*;
     use image::DynamicImage;
 
@@ -91,6 +93,21 @@ mod imp {
             }
         }
         out
+    }
+
+    /// Decode a data-URL (`data:image/jpeg;base64,...`) into an image.
+    /// Strips the MIME header, base64-decodes, then feeds `image::load_from_memory`.
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    fn decode_data_url(data_url: &str) -> Result<DynamicImage, String> {
+        // Format: "data:<mime>;base64,<payload>"
+        let b64_part = data_url
+            .find(";base64,")
+            .map(|i| &data_url[i + 8..])
+            .unwrap_or(data_url); // tolerate a raw base64 string
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64_part)
+            .map_err(|e| format!("base64 解码: {e}"))?;
+        image::load_from_memory(&bytes).map_err(|e| format!("图片解码: {e}"))
     }
 
     fn to_data_uri(img: &DynamicImage) -> Option<String> {
@@ -222,6 +239,63 @@ mod imp {
             }
         });
 
+        // --- mobile file picker (iOS / Android) --------------------------------
+        // On WKWebView (iOS) and Android WebView, `<input type="file">` opens the
+        // native system picker (Camera / Photo Library / Files). Dioxus's native
+        // file bridge doesn't carry file bytes across IPC on those platforms, so
+        // we inject a persistent JS listener via `document::eval` that reads each
+        // selected file with `FileReader.readAsDataURL` and sends the base64
+        // result back through the `dioxus.send()` channel.
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        {
+            let q_capture = capture_out;
+            use_future(move || async move {
+                // The JS sets up an onchange handler on the hidden file input.
+                // Each file pick produces one `dioxus.send(dataUrl)` message.
+                let mut eval = document::eval(
+                    r#"
+                    const input = document.getElementById('mobile-translate-file-input');
+                    if (input) {
+                        input.onchange = (e) => {
+                            const file = e.target.files && e.target.files[0];
+                            if (file) {
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                    dioxus.send(reader.result);
+                                    reader.onload = null;
+                                };
+                                reader.onerror = () => { dioxus.send(''); };
+                                reader.readAsDataURL(file);
+                            }
+                            input.value = '';
+                        };
+                    }
+                    "#,
+                );
+                loop {
+                    match eval.recv::<String>().await {
+                        Ok(data_url) if !data_url.is_empty() => {
+                            match decode_data_url(&data_url) {
+                                Ok(img) => {
+                                    let note = "已选择图片：可拖拽框选区域或用数值选区，或直接点「识别并翻译」处理整图。".to_string();
+                                    if let Ok(mut q) = q_capture.read().lock() {
+                                        q.push_back(CaptureOutcome::Ready(img, note));
+                                    }
+                                }
+                                Err(e) => {
+                                    if let Ok(mut q) = q_capture.read().lock() {
+                                        q.push_back(CaptureOutcome::Failed(format!("{}", e)));
+                                    }
+                                }
+                            }
+                        }
+                        Ok(_) => continue, // empty send = reader error
+                        Err(_) => break,   // eval channel closed (page unmount)
+                    }
+                }
+            });
+        }
+
         let cur = ui();
         let target_val = target();
         let src_val = src();
@@ -338,11 +412,28 @@ mod imp {
             }
         };
         #[cfg(any(target_os = "ios", target_os = "android"))]
-        let capture_group = rsx! {};
+        let capture_group = {
+            // Mobile: trigger the hidden file input via JS .click() (WKWebView
+            // shows the native Camera / Photo Library / Files action sheet).
+            let do_pick = move |_| {
+                document::eval(
+                    "document.getElementById('mobile-translate-file-input')?.click();",
+                );
+            };
+            rsx! {
+                button { class: "btn", onclick: do_pick, "选择图片" }
+            }
+        };
 
         let do_translate = move |_| {
             let Some(img) = frame.read().clone() else {
-                ui.with_mut(|u| u.status = "请先截取屏幕".to_string());
+                ui.with_mut(|u| {
+                    u.status = if cfg!(any(target_os = "ios", target_os = "android")) {
+                        "请先选择图片，或在下方「识别文本」框输入文本后点「翻译此文本」。".to_string()
+                    } else {
+                        "请先截取屏幕".to_string()
+                    }
+                });
                 return;
             };
             let img = apply_roi(img, roi());
@@ -492,8 +583,22 @@ mod imp {
             }
         });
 
+        let empty_hint = if cfg!(any(target_os = "ios", target_os = "android")) {
+            "点击「选择图片」从相册/相机取图开始；也可直接在右下「识别文本」框输入文字后点「翻译此文本」。首次使用需在下方下载模型。"
+        } else {
+            "点击「截取屏幕」「框选区域」或「打开图片」开始，或在下方下载模型后使用。"
+        };
+
         rsx! {
             div { class: "page translate",
+                // Hidden file input for the mobile picker (iOS/Android); harmless
+                // on desktop where the eval listener is never started.
+                input {
+                    id: "mobile-translate-file-input",
+                    r#type: "file",
+                    accept: "image/*",
+                    style: "display:none",
+                }
                 div { class: "page-head",
                     h1 { "翻译" }
                     div { class: "translate-actions",
@@ -583,7 +688,7 @@ mod imp {
                                 button { class: "btn small ghost", onclick: move |_| roi.set(None), "清除选区" }
                             }
                         } else {
-                            p { class: "muted pad", "点击「截取屏幕」「框选区域」或「打开图片」开始，或在下方下载模型后使用。" }
+                            p { class: "muted pad", "{empty_hint}" }
                         }
                     }
 

@@ -15,7 +15,20 @@
 | --- | --- | --- |
 | Phase 1 | macOS（Metal） | **代码已落地**，`cargo check --features translate` 在 Apple silicon macOS 上**编译全绿**；运行时端到端（截屏→框选→OCR→译文）待实机点验 |
 | Phase 2 | Windows / Linux（Vulkan，可选 CUDA） | **构建入口已补齐**：`translate-vulkan` feature（→ `llama-cpp-2/vulkan`，编 `GGML_VULKAN=ON`）已接通，Windows 侧提供 `scripts/check_translate.ps1` 一键配好 MSVC + Vulkan SDK 工具链。端到端仍需在装有 Vulkan SDK 与 ≥ 一款 Vulkan 显卡的实机上点验 |
-| Phase 3 | iOS / Android（Metal / CPU-NEON） | 未实现（图片输入改相机 / 相册，入口挂到 hub） |
+| Phase 3 | iOS（Metal）/ Android（CPU-NEON） | **入口与打包链路已接通**（见下）；原生 C++ 依赖仍需首次实机验证 |
+
+Phase 3 iOS 更新（2026-10）：
+
+- `Cargo.toml` 把 `xcap` 移到 `[target.'cfg(not(any(ios, android)))'.dependencies]`，`translate` feature 在 iOS target 上不再拉入桌面截屏库；`rfd` 保持桌面专属。
+- `pages/translate.rs` 在 iOS/Android 分支加入通过 `document::eval` + `FileReader.readAsDataURL` + `dioxus.send()` 回传 base64 的“选择图片”按钮，走 WKWebView 原生的 **拍照 / 相册 / 文件** 系统选择器；解码在后台线程复用同一个 `capture_out` 队列。同时保留 **「识别文本」+「翻译此文本」** 作为纯文本入口。
+- `nav_bar.rs` 把 `Page::Translate` 挂到 **Consolidate**（“巩固”）hub，移动端从底部 tab「巩固」进入即可看到「翻译」卡片。
+- `Dioxus.toml` 补 `NSCameraUsageDescription` / `NSPhotoLibraryUsageDescription`（iOS 强制项，缺失在用户点击拍照时崩溃）。
+- `scripts/package_ios.sh` 支持 `--features translate`：自动写一份 iOS CMake toolchain 到 `.cargo/ios-cmake-toolchain.cmake`，并导出 `CMAKE_TOOLCHAIN_FILE` / `CMAKE_OSX_SYSROOT` / `CMAKE_OSX_ARCHITECTURES` / `CFLAGS` / `CXXFLAGS` / `BINDGEN_EXTRA_CLANG_ARGS`，让 `llama-cpp-2`（llama.cpp，Apple 自动启用 Metal）和 `mnn-sys`（MNN）交叉到 iOS 模拟器目标。
+- **仍需实机点验**：
+  1. iOS 模拟器上 `llama-cpp-2` 的 Metal shader（`.metal` → `.metallib`）是否被正确编译。
+  2. `mnn-sys` 的 cmake 在 iOS toolchain 下是否产出静态 `.a`。
+  3. `.ipa` 体积：带 `translate` 的二进制大约 +80~120 MB。
+  4. 内存：HY-MT1.5-1.8B Q4_K_M 常驻 ~1.1 GB + KV cache（`n_ctx=1024`）。
 
 Phase 1 已实现：`translate` feature + 桌面截屏 + OCR + HY-MT 翻译全链路 + 模型
 按需下载 / 校验 + `Page::Translate` 桌面入口 + 流式 UI + 许可证与声明。
@@ -362,8 +375,9 @@ logits 实现以最小化 FFI 面积。
 
 ## 9. 已知限制 / 待办
 
-- 移动端（Phase 3）尚未接入：图片输入需改为相机 / 相册，导航入口需挂到 hub；
-  `capture.rs` 仅在非移动端编译。
+- 移动端（Phase 3）入口与打包链路已接通：iOS/Android 的图片输入走 `document::eval` +
+  `FileReader.readAsDataURL` + `dioxus.send()`；导航入口挂到“巩固” hub；`capture.rs` 仅在非移动端编译。
+  但原生依赖（llama.cpp + MNN）的 iOS 交叉编译仍需首次实机验证（见第 1 节 Phase 3 更新）。
 - 模型 URL / SHA-256 为占位，须按第 5 节确认。
 - `image` 版本需与 `rust-paddle-ocr` 传递依赖对齐后再锁定 `Cargo.lock`（当前已在
   Apple silicon macOS 上用 `scripts/check_translate.sh` 跑通 `cargo check --features

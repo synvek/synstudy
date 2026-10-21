@@ -33,3 +33,8 @@ Cargo.lock
 /pro
 /.qoder
 
+# translate feature 的 iOS 交叉编译产物：由 scripts/ios_translate_env.sh 每次重写，
+# 内含本机 SDK 绝对路径，不该入库（.cargo/config.toml 本身仍要提交）。
+/.cargo/ios-cmake-toolchain*
+/.cargo/.ios-cmake-toolchain*
+

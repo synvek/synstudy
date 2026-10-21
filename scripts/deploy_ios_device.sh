@@ -24,6 +24,18 @@
 #   bash scripts/deploy_ios_device.sh --no-build                # 复用已构建的 .app
 #   bash scripts/deploy_ios_device.sh --skip-sign               # 只构建+注入，不签名/安装
 #   bash scripts/deploy_ios_device.sh --dry-run                 # 打印计划，不执行改动
+#   bash scripts/deploy_ios_device.sh --features translate       # 带截图/拍照翻译的真机包
+#
+# translate feature 说明
+# ---------------------
+# 光把 `--features translate` 传给 dx 还不够：llama.cpp 与 MNN 是 CMake/cc-rs 从
+# 源码编的 native 库，默认会按 macOS host 编出「macOS Mach-O」→ 真机链接失败。
+# 这段交叉编译环境与 scripts/package_ios.sh 共用 scripts/ios_translate_env.sh
+# （kind=device：iphoneos sysroot + arm64-apple-ios 三元组，与模拟器的
+# iphonesimulator 分开缓存），只需带 --features translate 即可。
+# 模型文件（HY-MT ~1GB + PP-OCR）不入库，App 内首次使用时从 ModelScope 下载到
+# `data_dir()/models/{mt,ocr}`（见 src/translate/models.rs），真机上需在
+# 翻译页点「下载模型」，并确认 App 有网络权限。
 #
 # Provisioning profile 从哪来（免费个人团队）
 # -------------------------------------------
@@ -52,6 +64,7 @@ DRY_RUN=0
 DEVICE=""             # 设备 UDID 或名称（空则自动探测）
 IDENTITY="${IOS_CODESIGN_IDENTITY:-}"
 PROVISION="${IOS_PROVISIONING_PROFILE:-}"   # .mobileprovision 路径
+FEATURES=""           # 透传给 dx build 的 cargo features，如 "translate"
 
 usage() {
   cat <<'EOF'
@@ -62,6 +75,7 @@ usage() {
   --profile <.mobileprovision>  指定覆盖该设备的描述文件（签名必需）
   --no-build               跳过 dx 构建，复用已存在的 device .app
   --skip-sign              只构建+注入词典，不签名不安装（便于检查产物）
+  --features <列表>        透传给 dx build 的 cargo features（例如 translate）
   --dry-run                打印将执行的动作，不落改动
   -h, --help               显示本帮助
 EOF
@@ -76,6 +90,10 @@ while [ $# -gt 0 ]; do
     --profile)   PROVISION="${2:?--profile 需要 .mobileprovision 路径}"; shift 2 ;;
     --no-build)  DO_BUILD=0; shift ;;
     --skip-sign) DO_SIGN=0; shift ;;
+    --features)
+      [ $# -ge 2 ] || { echo "❌ --features 需要一个参数" >&2; exit 2; }
+      FEATURES="$2"; shift 2 ;;
+    --features=*) FEATURES="${1#*=}"; shift ;;
     --dry-run)   DRY_RUN=1; shift ;;
     -h|--help)   usage; exit 0 ;;
     *) echo "未知参数: $1" >&2; usage; exit 2 ;;
@@ -100,6 +118,12 @@ fi
 if [ "$DO_BUILD" -eq 1 ]; then
   DX_ARGS=(build --platform ios --device)
   [ "$PROFILE" = "release" ] && DX_ARGS+=(--release)
+  [ -n "$FEATURES" ] && DX_ARGS+=(--features "$FEATURES")
+  # translate feature 需要 iOS 交叉编译的 CMake/cc-rs 环境；非 translate 时该函数
+  # 直接返回，不设任何环境变量。实现与模拟器共用，详见 scripts/ios_translate_env.sh。
+  # shellcheck source=ios_translate_env.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/ios_translate_env.sh"
+  ios_translate_env device "$FEATURES"
   echo "==> dx ${DX_ARGS[*]}"
   if [ "$DRY_RUN" -eq 1 ]; then echo "DRY-RUN> dx ${DX_ARGS[*]}"; else dx "${DX_ARGS[@]}"; fi
 fi
@@ -228,7 +252,12 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "DRY-RUN> xcrun devicectl device process launch --device $UDID $BUNDLE_ID"
 else
   xcrun devicectl device install app --device "$UDID" "$APP_DIR"
-  xcrun devicectl device process launch --device "$UDID" "$BUNDLE_ID" || \
-    echo "⚠️  自动启动失败，可在设备上手动打开 ${BUNDLE_ID}"
-  echo "✅ 已安装并启动到真机 $UDID"
+  # 启动失败最常见的原因是设备锁屏（FBSOpenApplicationErrorDomain error 7），不是崩溃。
+  # 以前这里无论成败都打印「已安装并启动」，容易把锁屏误读成运行正常。
+  if xcrun devicectl device process launch --device "$UDID" "$BUNDLE_ID"; then
+    echo "✅ 已安装并启动到真机 $UDID"
+  else
+    echo "⚠️  已安装，但自动启动失败（多为设备锁屏）；解锁后手动打开 ${BUNDLE_ID}，"
+    echo "   或重跑: xcrun devicectl device process launch --device $UDID $BUNDLE_ID"
+  fi
 fi

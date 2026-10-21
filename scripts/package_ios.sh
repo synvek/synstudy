@@ -17,12 +17,13 @@
 #   bash scripts/package_ios.sh --release    # release 构建
 #   bash scripts/package_ios.sh --install    # 构建后安装并启动到 booted 模拟器
 #   bash scripts/package_ios.sh --no-build   # 跳过 dx 构建，仅向已存在的 .app 注入
+#   bash scripts/package_ios.sh --features translate   # 打包带截图/拍照翻译（Phase 3）
 #
 # 注意
 # ----
 # * 模拟器包无需代码签名，注入的 db 直接生效。
-# * 真机部署须在“签名之前”注入 db（改动已签名的 .app 会使签名失效）。本脚本面向
-#   模拟器工作流；真机打包 + 免费个人团队签名另行处理。
+# * 真机部署须在“签名之前”注入 db（改动已签名的 .app 会使签名失效）。真机打包 +
+#   免费个人团队签名用 scripts/deploy_ios_device.sh（同样支持 --features translate）。
 # * 依赖：dx（dioxus-cli 0.8.x）、Xcode 命令行工具（xcrun / simctl）。
 set -euo pipefail
 
@@ -37,6 +38,7 @@ NOTICES_SRC="assets/THIRD-PARTY-NOTICES.txt"
 PROFILE="debug"
 DO_BUILD=1
 DO_INSTALL=0
+FEATURES=""
 
 usage() {
   cat <<'EOF'
@@ -45,18 +47,23 @@ usage() {
   --debug      构建 debug 包（默认）
   --install    构建/注入后安装并启动到已启动(booted)的模拟器
   --no-build   跳过 dx 构建，仅向已存在的 .app 注入 db
+  --features   透传给 dx build 的 cargo features（例如 "translate"）
   -h, --help   显示本帮助
 EOF
 }
 
-for arg in "$@"; do
-  case "$arg" in
-    --release)  PROFILE="release" ;;
-    --debug)    PROFILE="debug" ;;
-    --install)  DO_INSTALL=1 ;;
-    --no-build) DO_BUILD=0 ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --release)  PROFILE="release"; shift ;;
+    --debug)    PROFILE="debug"; shift ;;
+    --install)  DO_INSTALL=1; shift ;;
+    --no-build) DO_BUILD=0; shift ;;
+    --features)
+      [ $# -ge 2 ] || { echo "❌ --features 需要一个参数" >&2; exit 2; }
+      FEATURES="$2"; shift 2 ;;
+    --features=*) FEATURES="${1#*=}"; shift ;;
     -h|--help)  usage; exit 0 ;;
-    *) echo "未知参数: $arg" >&2; usage; exit 2 ;;
+    *) echo "未知参数: $1" >&2; usage; exit 2 ;;
   esac
 done
 
@@ -68,6 +75,15 @@ APP_DIR="${IOS_DIR}/${APP_NAME}.app"
 if [ "$DO_BUILD" -eq 1 ]; then
   DX_ARGS=(build --platform ios)
   [ "$PROFILE" = "release" ] && DX_ARGS+=(--release)
+  [ -n "$FEATURES" ] && DX_ARGS+=(--features "$FEATURES")
+
+  # translate feature 的 iOS 交叉编译环境（CMake toolchain / sysroot / cc-rs 与
+  # bindgen flags）由 scripts/ios_translate_env.sh 统一注入，模拟器与真机共用一份
+  # 实现（坑位说明见该文件顶部注释）。
+  # shellcheck source=ios_translate_env.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/ios_translate_env.sh"
+  ios_translate_env sim "$FEATURES"
+
   echo "==> dx ${DX_ARGS[*]}"
   dx "${DX_ARGS[@]}"
 fi

@@ -49,12 +49,15 @@ const TABS: [(Page, &str, &str); 5] = [
 ];
 
 /// Pages grouped under the "巩固" hub. Kept here so the tab stays lit while any
-/// of them is open.
-const CONSOLIDATE_PAGES: [(Page, &str); 4] = [
+/// of them is open. `翻译` lives here on mobile (no room in the 5-tab bar and
+/// it's a use-words-in-context activity); on desktop it still shows in the
+/// top navbar via `Page::nav_items()`.
+const CONSOLIDATE_PAGES: [(Page, &str); 5] = [
     (Page::Wordbook, "生词本"),
     (Page::Review, "背诵"),
     (Page::Quiz, "测验"),
     (Page::Roots, "词根"),
+    (Page::Translate, "翻译"),
 ];
 
 /// Pages grouped under the "我的" hub; same tab-lit purpose.

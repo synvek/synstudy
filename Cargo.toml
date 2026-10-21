@@ -68,12 +68,12 @@ rust-paddle-ocr = { git = "https://github.com/zibo-chen/rust-paddle-ocr.git", br
 # by llama.cpp automatically on Apple targets; Vulkan/CUDA are opt-in through
 # the `translate-vulkan` / `translate-cuda` features below.
 llama-cpp-2 = { version = "0.1", optional = true }
-# Desktop screen capture (Apache-2.0). `image` is shared with the OCR/MT path.
-xcap = { version = "0.9", optional = true }
 # Blocking model downloader + SHA-256 verification. `image` for decode/crop.
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "rustls-tls"] }
 sha2 = { version = "0.10", optional = true }
 image = { version = "0.25", optional = true }
+# Base64 decoding for the mobile file picker (JS FileReader → dataURL → Rust).
+base64 = { version = "0.22", optional = true }
 # Portable async sleep for the UI's engine-inbox polling loop. Dioxus 0.8's
 # desktop prelude exposes no timer (its `TimeoutFuture` is gloo/wasm-only), so
 # we use futures-timer's cross-platform `Delay` (native helper thread + wasm).
@@ -82,11 +82,15 @@ futures-timer = { version = "3", optional = true }
 # Desktop-only: `directories` returns a macOS/Linux/Windows app-data folder.
 # Not usable on iOS/Android sandboxes, so we gate it out and route through
 # `crate::platform` instead.
-[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
-directories = "5"
+# `xcap` (screen grab) is likewise desktop-only: iOS uses the WebView file/camera
+# picker and Android would need a JNI bridge, so leaving it under `translate`
+# would break mobile builds of that feature.
 # Native file-open dialog (MIT/Apache-2.0) for the translate page's "打开图片"
 # button. Desktop-only (mobile uses the webview file/camera picker in Phase 3).
 # Blocking API only, so we drop rfd's default (async/tokio) features.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+directories = "5"
+xcap = { version = "0.9", optional = true }
 rfd = { version = "0.15", optional = true, default-features = false }
 
 # macOS: `libc::atexit` lets the translate engine release its resident
@@ -128,6 +132,7 @@ translate = [
     "dep:image",
     "dep:futures-timer",
     "dep:rfd",
+    "dep:base64",
 ]
 # GPU backends for the llama.cpp translation engine. Metal is on automatically
 # for Apple targets, so these only matter for Windows/Linux (Vulkan) or NVIDIA
@@ -140,3 +145,29 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+# --- 本地修补：tao 0.35.3 的 iOS scene 生命周期 use-after-free ---
+#
+# dioxus 0.8.0-alpha.1 把 tao 锁在 ^0.35.2（该系列最新就是 0.35.3，上游修复只在
+# dev / 0.36+ 里），所以只能自己 patch。vendor/tao 是 crates.io 0.35.3 的完整副本，
+# 仅改了一行：src/platform_impl/ios/view.rs 的
+# `configuration_for_connecting_scene_session` 返回值从 `Retained::as_ptr(&config)`
+# 改为 `Retained::autorelease_ptr(config)`（与上游 dev 分支一致）。
+#
+# 症状：iOS【真机】包启动即闪退，崩溃报告为 EXC_BAD_ACCESS / SIGSEGV，栈顶是
+# libobjc `objc_retain` <- UIKitCore `-[UIApplication _connectUISceneFromFBSScene:
+# transitionContext:]`，下面直接是我们的 `synstudy::run -> dioxus launch ->
+# tao EventLoop::run -> UIApplicationMain`，Rust 侧无任何日志输出。
+# 原因：该 delegate 方法按 ObjC 约定返回 +0 对象，`as_ptr` 之后 `Retained` 立刻
+# drop（= release），UIKit 异步连接 scene 时用的是已被回收/复用的内存；是否踩雷
+# 取决于分配器时序，所以 debug、模拟器（26.5/27.0）以及某些 release 代码生成配置
+# （lto=false + codegen-units=16）看起来正常，而 lto=true / codegen-units=1 的真机
+# 包 100% 崩溃（同一二进制反复启动 5 次全崩，已实测）。
+# 注意：不能靠删 Info.plist 的 UIApplicationSceneManifest 绕过 —— iOS 27 上无 scene
+# 声明的包直接被拒绝启动（模拟器 iPhone 18 Pro / iOS 27.0 实测装不上、报“Needs to Be
+# Updated”），Apple 已强制要求 scene 生命周期。
+#
+# 后续 dioxus 升到依赖 tao >=0.36 的版本时，删掉本节即可（先用
+# `cargo update -p tao` 确认解析到的版本不再走 patch）。
+[patch.crates-io]
+tao = { path = "vendor/tao" }

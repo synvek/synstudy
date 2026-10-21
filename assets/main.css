@@ -1104,3 +1104,20 @@ h1, h2, h3, h4 { color: var(--text); }
     min-height: 0; overflow-y: auto;
   }
 }
+
+/* ---------------- Mobile (iOS / Android): editable control font floor ---------------- */
+/* WebKit（iOS WKWebView）与 Blink（Android WebView）在聚焦「计算字号 < 16px」的
+   input/textarea/select 时会自动放大整个页面（snap-to-zoom），并且失焦后不还原；
+   键盘收起后还常留下根滚动偏移。真机上表现为：翻译页编辑「识别文本」后整页像变大
+   了、超出屏幕宽高、顶部文字被遮，切到别的 tab 后 position:fixed 的底部 tabbar 也
+   跑到视口外，要滚动才看得到。这里统一兜底到 16px，桌面端不受影响（data-platform
+   仅由 src/app.rs 在移动端注入）。
+
+   选择器写成 :root[data-platform] + 元素（特异性 0,2,1），高于 .translate .input
+   （0,2,0）、.select / .quiz-input / .search-box input（0,1,x）等历史规则；放在文件
+   末尾，再与同特异性的规则以后者为准。 */
+:root[data-platform] input,
+:root[data-platform] textarea,
+:root[data-platform] select {
+  font-size: 16px;
+}

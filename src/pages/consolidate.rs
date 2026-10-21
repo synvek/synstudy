@@ -11,8 +11,9 @@ struct ConsolidateLink {
 }
 
 /// The consolidation flows gathered under the mobile "巩固" tab: the saved-word
-/// book plus the three practice modes (recitation / quiz / roots).
-const LINKS: [ConsolidateLink; 4] = [
+/// book plus the three practice modes (recitation / quiz / roots) and the
+/// screenshot/photo translation tool.
+const LINKS: [ConsolidateLink; 5] = [
     ConsolidateLink {
         page: Page::Wordbook,
         icon: "\u{1f516}",
@@ -36,6 +37,12 @@ const LINKS: [ConsolidateLink; 4] = [
         icon: "\u{1f331}",
         title: "词根",
         desc: "词根词缀串联扩展词汇",
+    },
+    ConsolidateLink {
+        page: Page::Translate,
+        icon: "\u{1f5c4}\u{fe0f}",
+        title: "翻译",
+        desc: "截图 / 拍照 OCR + 本地翻译",
     },
 ];
 

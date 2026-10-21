@@ -9,6 +9,48 @@ use crate::state::{DictLookup, Page, Settings, LAST_CATEGORY_KEY, SETTINGS_KEY};
 
 const CSS: &str = include_str!("../assets/main.css");
 
+/// 移动端键盘/缩放复位钩子（仅 iOS/Android 注入，见下面的 use_effect）。
+///
+/// 与 main.css 末尾的字号兜底配套：字号兜底负责「不触发」WebKit 的
+/// snap-to-zoom，这里负责「触发了也能恢复」——包括用户自己双指放大过的场景。
+/// JS 里没有 `{}` 需要转义，因为它不在 format! 的字面量内。
+#[cfg(any(target_os = "ios", target_os = "android"))]
+const MOBILE_VIEWPORT_GUARD: &str = r#"
+(function () {
+  if (window.__ssViewportGuard) return;
+  window.__ssViewportGuard = true;
+  var editable = function (el) {
+    var tag = el && el.tagName;
+    if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (tag !== 'INPUT') return false;
+    var t = (el.type || '').toLowerCase();
+    return t !== 'button' && t !== 'submit' && t !== 'checkbox' &&
+           t !== 'radio' && t !== 'range' && t !== 'file';
+  };
+  var restore = function () {
+    // 1) 键盘收起后 WKWebView 的根滚动视图常停在非零 offset（页面被整体上移，
+    //    顶部内容被遮）。文档本身 overflow:hidden 不可滚，这里就是无害的空操作。
+    window.scrollTo(0, 0);
+    // 2) 页面仍处于放大状态时复位。JS 没有设置缩放/还原 visualViewport.scale 的
+    //    API，可行做法是临时收紧 maximum-scale —— WebKit 会立刻把页面缩回 1x，
+    //    下一帧再恢复原 content，双指缩放能力不受影响。
+    var vv = window.visualViewport;
+    if (!vv || vv.scale <= 1.01) return;
+    var meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) return;
+    var keep = meta.getAttribute('content') || '';
+    meta.setAttribute('content', keep + ', maximum-scale=1');
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { meta.setAttribute('content', keep); });
+    });
+  };
+  // 编辑控件失焦（= 键盘收起）之后复位一次；延迟等 WebKit 把 offset 落定。
+  document.addEventListener('focusout', function (e) {
+    if (editable(e.target)) setTimeout(restore, 60);
+  }, true);
+})();
+"#;
+
 /// Root component: wires up shared state and renders the app shell.
 #[allow(non_snake_case)]
 pub fn App() -> Element {
@@ -69,6 +111,24 @@ pub fn App() -> Element {
             "document.documentElement.setAttribute('data-theme','{theme}');\
              document.documentElement.setAttribute('data-font','{font}')"
         ));
+    });
+
+    // 移动端视口兜底：给 <html> 打上 data-platform，让 main.css 末尾的规则把
+    // 可编辑控件字号抬到 16px，同时装上面的失焦复位钩子。
+    //
+    // 真机症状（iOS）：在翻译页编辑「识别文本」textarea 后整页像是变大、超出屏幕
+    // 宽高，顶部文字被遮；切到别的 tab 后 position:fixed 的底部 tabbar 也跑到视口
+    // 外，要滚动才看得到。原因是 WebKit 聚焦「计算字号 < 16px」的 input/textarea/
+    // select 时会自动放大整页（snap-to-zoom）且失焦不还原，键盘收起后还会留下根
+    // 滚动偏移。翻译页 textarea 14px、.select 14px、ROI 数字框 13px 都在阈值以下。
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    use_effect(move || {
+        let marker = if cfg!(target_os = "ios") {
+            "document.documentElement.setAttribute('data-platform','ios');"
+        } else {
+            "document.documentElement.setAttribute('data-platform','android');"
+        };
+        document::eval(&format!("{marker}{MOBILE_VIEWPORT_GUARD}"));
     });
 
     // On desktop with the translate stack, release the resident llama/Metal
