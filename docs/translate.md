@@ -275,8 +275,9 @@ bash scripts/package_macos.sh --no-build
     └── hy-mt1.5-1.8b-q4_k_m.gguf   # 翻译模型 Q4_K_M（约 1.08 GB）
 ```
 
-`<data_dir>` 与进度库同目录（macOS：`~/Library/Application Support/
-com.synstudy.synstudy/`；Linux：`~/.local/share/...`；Windows：`%APPDATA%\...`）。
+`<data_dir>` 与进度库同目录（macOS：`~/Library/Application Support/com.synvek.synstudy/`；
+Linux：`~/.local/share/synstudy/`；Windows：`%APPDATA%\Synvek\Synstudy\data\`；
+iOS：App 沙盒 Documents；Android：应用私有 files 目录）。
 
 下载能力（`translate/models.rs`）：当前每个文件**单一 ModelScope 源**（我们上传的
 `synvek/*` 仓库，即权威出处）；镜像回退列（`ModelFile.urls`）预留但暂未接入，

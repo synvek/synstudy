@@ -197,9 +197,11 @@ dx serve --platform desktop   # 开发热重载
 
 首次启动会在系统应用数据目录创建可写进度库：
 
-- **macOS**：`~/Library/Application Support/com.synstudy.synstudy/progress.db`
-- **Linux**：`~/.local/share/com.synstudy.synstudy/progress.db`
-- **Windows**：`%APPDATA%\com.synstudy.synstudy\progress.db`
+- **macOS**：`~/Library/Application Support/com.synvek.synstudy/progress.db`
+- **Linux**：`~/.local/share/synstudy/progress.db`
+- **Windows**：`%APPDATA%\Synvek\Synstudy\data\progress.db`
+
+> 目录名来自 `src/platform/native.rs` 里的 `ProjectDirs::from(...)`，与 `[bundle] identifier` 保持一致；`directories` 在各平台拼法不同：macOS 用反向域名（小写，等于 bundle id），Windows 用「厂商\产品」两层嵌套（公司名/产品名按专名大写），Linux 只取最后一段且被 crate 强制小写（也符合 XDG 惯例）。
 
 > 词典库查找顺序：环境变量 `SYNSTUDY_DICT_DB` → 可执行文件同目录 → `./assets/synstudy.db` → `./synstudy.db`。
 

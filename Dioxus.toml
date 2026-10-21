@@ -9,8 +9,11 @@ asset_dir = "assets"
 # Bundle identifier + version used across macOS .app / iOS .ipa / Android APK.
 # Reverse-DNS app identity: the unique key on App Store / Google Play, so it
 # must match signing & provisioning and never change after first release.
-# (Desktop progress-db dir comes from directories::ProjectDirs which keeps its
-# own "com.synstudy.synstudy" id; changing this does NOT move user data.)
+# (The desktop writable data dir — progress.db, downloaded models — is keyed by
+# the same reverse-DNS id, but hardcoded in src/platform/native.rs: macOS uses
+# this id verbatim, Windows nests %APPDATA%\Synvek\Synstudy\data (proper-noun
+# casing), Linux only ~/.local/share/synstudy. Editing this line does NOT move
+# user data; keep the two in sync, and change neither once real users exist.)
 [bundle]
 identifier = "com.synvek.synstudy"
 publisher = "synvek"
