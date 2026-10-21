@@ -58,7 +58,39 @@ mod imp {
         busy: bool,
         /// (received, total) while downloading, else None.
         download: Option<(u64, u64)>,
+        /// Blocking notice rendered as a centered modal; `None` when nothing is
+        /// pending. See [`Alert`].
+        alert: Option<Alert>,
     }
+
+    /// A notice the user must not miss. The inline status line sits at the top of
+    /// the page, which on mobile is already off-screen once the user scrolled
+    /// down to the text box or the model panel — so those messages are also
+    /// raised as a modal.
+    ///
+    /// `scroll_to` names the DOM id to bring into view after the user confirms,
+    /// but only on mobile: on desktop the model panel needs no hunting.
+    #[derive(Clone)]
+    struct Alert {
+        message: String,
+        scroll_to: Option<&'static str>,
+    }
+
+    impl Ui {
+        /// Report `msg` inline (status line) *and* as a modal.
+        fn raise(&mut self, msg: &str, scroll_to: Option<&'static str>) {
+            self.status = msg.to_string();
+            self.alert = Some(Alert {
+                message: msg.to_string(),
+                scroll_to,
+            });
+        }
+    }
+
+    /// DOM ids of the two model download rows, used as mobile scroll targets
+    /// after an alert is confirmed. Keep in sync with the rsx below.
+    const DL_ROW_OCR: &str = "dl-row-ocr";
+    const DL_ROW_MT: &str = "dl-row-mt";
 
     /// Outcome of a background capture / file-dialog / region-grab thread, pushed
     /// onto a shared queue and drained by the UI poll loop (signals can only be
@@ -426,6 +458,26 @@ mod imp {
         };
 
         let do_translate = move |_| {
+            // 模型缺失在点击时就地预检：引擎报的「…（请先下载）」是异步回到顶部
+            // 状态行的，移动端用户滚不到那儿。弹窗 + 确认后滚到对应的下载行。
+            if !ocr_ready {
+                ui.with_mut(|u| {
+                    u.raise(
+                        "还未下载 OCR 模型（约 21 MB），无法识别图片文字。请在下方「模型」区下载后重试。",
+                        Some(DL_ROW_OCR),
+                    )
+                });
+                return;
+            }
+            if !mt_ready {
+                ui.with_mut(|u| {
+                    u.raise(
+                        "还未下载翻译模型 HY-MT1.5-1.8B（约 1.1 GB），无法翻译。请在下方「模型」区下载后重试。",
+                        Some(DL_ROW_MT),
+                    )
+                });
+                return;
+            }
             let Some(img) = frame.read().clone() else {
                 ui.with_mut(|u| {
                     u.status = if cfg!(any(target_os = "ios", target_os = "android")) {
@@ -458,10 +510,24 @@ mod imp {
         // without re-running OCR over the screenshot region. This is the fix-up
         // path: edit the textarea, then re-translate exactly what it says.
         let do_translate_text = move |_| {
+            // 只需 MT（走的是文本，不跑 OCR），缺失时同样弹窗并指向下载行。
+            if !mt_ready {
+                ui.with_mut(|u| {
+                    u.raise(
+                        "还未下载翻译模型 HY-MT1.5-1.8B（约 1.1 GB），无法翻译。请在下方「模型」区下载后重试。",
+                        Some(DL_ROW_MT),
+                    )
+                });
+                return;
+            }
             let text = ui.read().ocr.clone();
             if text.trim().is_empty() {
+                // 这个按钮在页面底部，提示必须弹窗才看得见。
                 ui.with_mut(|u| {
-                    u.status = "识别文本为空：请先截屏识别，或在上方文本框直接输入。".to_string()
+                    u.raise(
+                        "识别文本为空：请先截屏识别，或在上方文本框直接输入文字。",
+                        None,
+                    )
                 });
                 return;
             }
@@ -587,6 +653,44 @@ mod imp {
             "点击「选择图片」从相册/相机取图开始；也可直接在右下「识别文本」框输入文字后点「翻译此文本」。首次使用需在下方下载模型。"
         } else {
             "点击「截取屏幕」「框选区域」或「打开图片」开始，或在下方下载模型后使用。"
+        };
+
+        // Blocking notice: the status line sits above the fold and is invisible to
+        // a mobile user who tapped a button at the bottom of the page, so the same
+        // text is raised here as a modal. Both platforms get the dialog (one UX);
+        // only mobile scrolls to the download row on confirm. Built as an `Element`
+        // before the page rsx because `rsx!` children cannot hold `let` bindings
+        // (same reason `capture_group` above is built outside).
+        let alert_modal = match cur.alert.clone() {
+            Some(alert) => {
+                let message = alert.message;
+                let scroll_target = alert.scroll_to;
+                // Tapping the dimmed backdrop just dismisses — no navigation.
+                let close = move |_| ui.with_mut(|u| u.alert = None);
+                let confirm = move |_| {
+                    ui.with_mut(|u| u.alert = None);
+                    if cfg!(any(target_os = "ios", target_os = "android")) {
+                        if let Some(id) = scroll_target {
+                            document::eval(&format!(
+                                "var el = document.getElementById('{id}'); if (el) el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});"
+                            ));
+                        }
+                    }
+                };
+                rsx! {
+                    div { class: "alert-mask", onclick: close,
+                        div { class: "alert-card",
+                            p { class: "alert-msg", "{message}" }
+                            div { class: "alert-actions",
+                                button { class: "btn primary", onclick: confirm,
+                                    if cfg!(any(target_os = "ios", target_os = "android")) { "去下载" } else { "知道了" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            None => rsx! {},
         };
 
         rsx! {
@@ -726,7 +830,7 @@ mod imp {
                         }
                         p { class: "muted hint", "下载中… {p:.0}%" }
                     }
-                    div { class: "setting-row",
+                    div { class: "setting-row", id: "{DL_ROW_OCR}",
                         label { "OCR 模型（约 21 MB）" }
                         if ocr_ready {
                             span { class: "ok", "已就绪" }
@@ -734,7 +838,7 @@ mod imp {
                             button { class: "btn small", onclick: do_download_ocr, "下载" }
                         }
                     }
-                    div { class: "setting-row",
+                    div { class: "setting-row", id: "{DL_ROW_MT}",
                         label { "翻译模型 HY-MT1.5-1.8B（约 1.1 GB）" }
                         if mt_ready {
                             span { class: "ok", "已就绪" }
@@ -750,6 +854,8 @@ mod imp {
                         p { class: "muted hint", "首次使用需下载模型；下载后会做完整性校验，仅从官方源获取，不随安装包分发。" }
                     }
                 }
+
+                {alert_modal}
             }
         }
     }
