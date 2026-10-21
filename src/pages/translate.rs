@@ -102,6 +102,49 @@ mod imp {
         Failed(String),
     }
 
+    /// Inbox shared with the background capture threads.
+    type CaptureQueue =
+        std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<CaptureOutcome>>>;
+
+    /// Translate page state that has to outlive the component.
+    ///
+    /// The router unmounts this page on every tab switch, and a `use_signal`
+    /// handle dies with its scope — without hoisting, peeking at another tab and
+    /// coming back wiped the screenshot the user just took along with the OCR
+    /// text and the translation. These signals are created once in the app root
+    /// (see `App`'s providers), so navigating away only *hides* the page.
+    ///
+    /// `target` / `src` are deliberately not here: they are re-seeded from the
+    /// persisted `Settings` on every mount, which yields the same value.
+    #[derive(Clone, Copy)]
+    pub struct PageStore {
+        ui: Signal<Ui>,
+        preview: Signal<Option<String>>,
+        frame: Signal<Option<DynamicImage>>,
+        roi: Signal<Option<(f64, f64, f64, f64)>>,
+        drag: Signal<Option<(f64, f64)>>,
+        capture_out: Signal<CaptureQueue>,
+    }
+
+    impl PageStore {
+        /// Build the persistent signals. **Must** be called from the app root
+        /// scope, where contexts live for the whole session — signals created in
+        /// a page scope are dropped when the router unmounts that page, which is
+        /// exactly the bug this struct exists to avoid.
+        pub fn provide() -> Self {
+            Self {
+                ui: Signal::new(Ui::default()),
+                preview: Signal::new(None),
+                frame: Signal::new(None),
+                roi: Signal::new(None),
+                drag: Signal::new(None),
+                capture_out: Signal::new(std::sync::Arc::new(std::sync::Mutex::new(
+                    std::collections::VecDeque::new(),
+                ))),
+            }
+        }
+    }
+
     /// Minimal standard-base64 encoder (no extra dependency) for the PNG preview.
     fn b64(data: &[u8]) -> String {
         const TBL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -173,24 +216,23 @@ mod imp {
         let progress: ProgressRepo = use_context();
         let dict: DictRepo = use_context();
 
-        let mut ui = use_signal(Ui::default);
+        // Anything the user could lose by tapping another tab lives in
+        // `PageStore` (app-root signals), not in this scope.
+        let store: PageStore = use_context();
+        let mut ui = store.ui;
         let mut target = use_signal(|| settings.read().translate_target_lang.clone());
         let mut src = use_signal(|| settings.read().translate_src_lang.clone());
-        let preview = use_signal(|| Option::<String>::None);
+        let preview = store.preview;
         // The captured frame lives in a plain signal (never rendered directly);
         // only its PNG data-URI preview goes into `preview`.
-        let frame = use_signal(|| Option::<DynamicImage>::None);
-        let mut drag = use_signal(|| Option::<(f64, f64)>::None);
-        let mut roi = use_signal(|| Option::<(f64, f64, f64, f64)>::None);
+        let frame = store.frame;
+        let mut drag = store.drag;
+        let mut roi = store.roi;
 
-        // Shared inbox for background capture threads. The Arc is created once
-        // (`use_signal` persists it across renders) and cloned into each worker,
-        // so every thread and the poll loop below all see the same queue.
-        let capture_out = use_signal(|| {
-            std::sync::Arc::new(std::sync::Mutex::new(
-                std::collections::VecDeque::<CaptureOutcome>::new(),
-            ))
-        });
+        // Shared inbox for background capture threads. It lives in the store too,
+        // so a screenshot captured just before a tab switch is still here to be
+        // drained when the page comes back.
+        let capture_out = store.capture_out;
 
         // Fold a freshly obtained frame into the preview (reset ROI + results).
         // Only ever called from the reactive poll loop, never from a worker. The
@@ -878,4 +920,4 @@ mod imp {
 }
 
 #[cfg(feature = "translate")]
-pub use imp::TranslateInner as Translate;
+pub use imp::{PageStore, TranslateInner as Translate};

@@ -10,10 +10,17 @@ struct ConsolidateLink {
     desc: &'static str,
 }
 
-/// The consolidation flows gathered under the mobile "巩固" tab: the saved-word
-/// book plus the three practice modes (recitation / quiz / roots) and the
-/// screenshot/photo translation tool.
+/// The consolidation flows gathered under the mobile "巩固" tab: the word-list
+/// picker, the saved-word book and the three practice modes (recitation /
+/// quiz / roots). `翻译` used to sit here too; in `translate` builds it now owns
+/// a tab of its own (see `TABS_WITH_TRANSLATE`), and `词库` took its old slot.
 const LINKS: [ConsolidateLink; 5] = [
+    ConsolidateLink {
+        page: Page::Categories,
+        icon: "\u{1f4da}",
+        title: "词库",
+        desc: "选择或切换要学的词库",
+    },
     ConsolidateLink {
         page: Page::Wordbook,
         icon: "\u{1f516}",
@@ -38,16 +45,10 @@ const LINKS: [ConsolidateLink; 5] = [
         title: "词根",
         desc: "词根词缀串联扩展词汇",
     },
-    ConsolidateLink {
-        page: Page::Translate,
-        icon: "\u{1f5c4}\u{fe0f}",
-        title: "翻译",
-        desc: "截图 / 拍照 OCR + 本地翻译",
-    },
 ];
 
-/// Mobile "巩固" tab: a card-list hub gathering 生词本/背诵/测验/词根, so these
-/// study-and-reinforce flows live together instead of under "我的".
+/// Mobile "巩固" tab: a card-list hub gathering 词库/生词本/背诵/测验/词根, so
+/// these study-and-reinforce flows live together instead of under "我的".
 #[component]
 pub fn Consolidate() -> Element {
     let mut page: Signal<Page> = use_context();
@@ -57,7 +58,7 @@ pub fn Consolidate() -> Element {
             div { class: "mine-head",
                 div { class: "mine-id",
                     h1 { "巩固" }
-                    span { class: "muted", "收藏与练习，把学过的词真正记住" }
+                    span { class: "muted", "选词、收藏与练习，把学过的词真正记住" }
                 }
             }
 

@@ -87,6 +87,12 @@ pub fn App() -> Element {
             .unwrap_or_default();
         Signal::new(settings)
     });
+    // Translate page state (screenshot, OCR text, translation, ROI) is rooted
+    // here instead of in the page: the router unmounts a page as soon as the
+    // user taps another tab, and page-scope signals would take that work with
+    // them. See `pages::translate::PageStore`.
+    #[cfg(feature = "translate")]
+    use_context_provider(pages::translate::PageStore::provide);
 
     // Persist the active selection whenever it changes so the choice survives a
     // restart. Only `selected` is tracked here; the write hits the KV store and
