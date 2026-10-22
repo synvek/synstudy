@@ -726,6 +726,32 @@ fn AboutOverlay(
     let version = env!("CARGO_PKG_VERSION");
     // Which license entry is expanded in the "版权与许可" tab (single-open).
     let open = use_signal(|| Option::<&'static str>::None);
+    // Human-readable runtime platform for the "应用信息" table.
+    let platform_label = if cfg!(target_os = "macos") {
+        "macOS"
+    } else if cfg!(target_os = "windows") {
+        "Windows"
+    } else if cfg!(target_os = "ios") {
+        "iOS"
+    } else if cfg!(target_os = "android") {
+        "Android"
+    } else if cfg!(target_os = "linux") {
+        "Linux"
+    } else {
+        "桌面"
+    };
+    // kv row for the translate model directory; renders nothing when the
+    // feature is off (rsx children cannot carry item-level #[cfg], so the
+    // fragment is assembled here — the project's standard workaround).
+    #[cfg(feature = "translate")]
+    let models_kv = {
+        let dir = crate::platform::models_dir().display().to_string();
+        rsx! {
+            div { class: "kv", span { class: "k", "翻译模型目录" } span { class: "v", "{dir}" } }
+        }
+    };
+    #[cfg(not(feature = "translate"))]
+    let models_kv = rsx! {};
     rsx! {
         div { class: "page settings about",
             div { class: "page-head",
@@ -757,7 +783,18 @@ fn AboutOverlay(
                                 p { class: "muted", "版本 {version} · 英语学习词典" }
                             }
                         }
-                        p { "离线优先英语词典与词汇学习工具：内置英汉 / 汉英双向词典与分级词库，支持学习、背诵（间隔重复 SRS）、测验、词根与生词本，所有进度仅保存在本地。请访问主页: https://github.com/synvek/synstudy" }
+                        p { "离线优先的英语词典与词汇学习工具：内置英汉 / 汉英双向词典与分级词库，支持学习、背诵（间隔重复 SRS）、测验、词根与生词本；可选的截图 / 拍照 / 文本翻译同样在设备本地完成。所有学习数据仅保存在你的设备上。" }
+                        h3 { "应用信息" }
+                        div { class: "kv", span { class: "k", "版本号" } span { class: "v", "{version}" } }
+                        div { class: "kv", span { class: "k", "运行平台" } span { class: "v", "{platform_label}" } }
+                        div { class: "kv", span { class: "k", "开源许可" } span { class: "v", "MIT OR Apache-2.0" } }
+                        div { class: "kv", span { class: "k", "项目主页" } span { class: "v", "https://github.com/synvek/synstudy" } }
+                        h3 { "本地数据" }
+                        div { class: "kv", span { class: "k", "词典数据库" } span { class: "v", "{dict_path}" } }
+                        div { class: "kv", span { class: "k", "收录单词" } span { class: "v", "{total_words}" } }
+                        div { class: "kv", span { class: "k", "进度数据库" } span { class: "v", "{progress_path}" } }
+                        {models_kv}
+                        p { class: "muted hint", "翻译结果由本地模型生成，仅供学习参考，不保证在法律、医疗等严肃场景下的准确性。问题反馈：https://github.com/synvek/synstudy/issues" }
                     }
                 },
                 AboutTab::License => rsx! {
@@ -774,23 +811,46 @@ fn AboutOverlay(
                             p { "以下组件在启用「翻译」功能时使用：推理引擎（MNN / llama.cpp），模型权重（PaddleOCR / HY-MT）在运行时下载。" }
                             { license_docs_view(TRANSLATE_LICENSES, open) }
                         }
+                        h3 { "致谢与声明" }
+                        p { class: "muted hint", "Synstudy 基于上述开源社区的成果构建，谨致谢意。Synstudy 为独立开源项目，与腾讯（HY-MT）、百度（PaddleOCR）、阿里巴巴（MNN）、Princeton、Tatoeba 等组织无隶属关系，相关商标归其权利人所有。完整第三方清单亦随发行包附带（license/THIRD-PARTY-NOTICES.txt）。" }
                     }
                 },
                 AboutTab::Privacy => rsx! {
                     div { class: "about-card",
-                        h3 { "隐私政策" }
-                        p { "Synstudy 以本地运行为核心：无后端服务、无账户体系，不收集也不上传任何个人信息。使用翻译功能时会涉及系统权限：移动端为相机与相册，桌面端截屏输入在 macOS 上涉及屏幕录制，见下文说明。" }
+                        h3 { "概述" }
+                        p { "Synstudy 以本地运行为核心：无后端服务、无账户体系，不收集、不上传、不向任何第三方分享个人信息。以下逐项说明权限使用、数据处理与网络行为。本政策适用于版本 {version}。" }
+                        h3 { "我们不收集的信息" }
                         ul { class: "about-list",
-                            li { "学习进度、设置、错词本与生词本等数据仅写入本地设备的应用数据目录（见“关于本软件”中的进度数据库路径）。" }
-                            li { "无遥测、无埋点、无广告，应用不会向任何第三方共享你的数据。" }
-                            li { "相机权限：移动端点击「拍照」识别题目/文档照片时，系统会请求相机权限；拍摄的照片仅用于本机的文字识别与翻译，不会上传网络或离开设备。拒绝该权限不影响其他功能，可改用相册选图或文本输入翻译。" }
-                            li { "相册：移动端从相册选图仅读取你在系统选择器中主动选取的图片，应用不会批量读取或扫描相册内容；所选图片同样仅在本地处理。" }
-                            if cfg!(not(any(target_os = "ios", target_os = "android"))) {
-                                li { "截屏（桌面版）：翻译页的「截屏」识别输入仅在你主动发起时获取一次屏幕内容：macOS 调用系统区域截图工具，首次使用需在系统设置中授予「屏幕录制」权限；Windows / Linux 为应用内全屏抓取后由你框选区域。截屏仅用于本地文字识别与翻译，不会上传网络；过程中的临时图像文件在使用完毕后立即删除。" }
-                            }
-                            li { "翻译为本地推理：文字识别（OCR）与机器翻译模型均在设备本地运行，你的照片与文本不会被发送到任何服务器；仅首次使用需翻译功能时，会从 ModelScope 下载公开的模型权重文件（纯下行获取，不携带任何个人、照片或文本数据）。" }
-                            li { "单词发音调用操作系统内置的语音合成（Web Speech API），朗读文本为本地单词，不上传网络；若您的系统语音实现需联网，可在设置中关闭发音。" }
+                            li { "不要求注册或登录，应用内不存在任何账户与身份标识体系。" }
+                            li { "不收集位置、通讯录、通话记录、浏览历史，也不分配或使用设备指纹。" }
+                            li { "无遥测、无埋点、无广告 SDK；学习数据的读取与写入均不离开设备。" }
                         }
+                        h3 { "系统权限与用途" }
+                        ul { class: "about-list",
+                            li { "相机（移动端）：点击「拍照」时由系统弹出授权请求，仅用于拍摄需要识别的题目 / 文档照片，照片只在本机参与文字识别与翻译。拒绝该权限不影响其他功能，可改用相册选图或文本输入；可随时在系统「设置 → 隐私与安全性 → 相机」中关闭。" }
+                            li { "相册（移动端）：通过系统选择器仅读取你主动选取的图片，应用不会扫描或批量读取相册内容；所选图片仅在本地处理。可在系统「设置 → 隐私与安全性 → 照片」中调整访问权限。" }
+                            if cfg!(not(any(target_os = "ios", target_os = "android"))) {
+                                li { "截屏（桌面版）：翻译页的「截屏」识别输入仅在你主动发起时获取一次屏幕内容：macOS 调用系统区域截图工具，首次使用需在「系统设置 → 隐私与安全性 → 屏幕录制」中授权（同处可随时撤销）；Windows / Linux 为应用内全屏抓取后由你框选区域。截屏仅用于本地文字识别与翻译，不上传网络。" }
+                            }
+                            li { "语音合成：单词发音调用操作系统内置引擎（Web Speech API），朗读文本仅为本地单词；若系统语音实现需联网，可在设置中关闭发音。" }
+                        }
+                        h3 { "数据存储与删除" }
+                        ul { class: "about-list",
+                            li { "学习进度、设置、错词本与生词本等数据仅写入本地应用数据目录，具体路径见「关于本软件 → 本地数据」。" }
+                            li { "删除方式：在「设置 → 重置进度」清空学习数据，或直接删除上述数据库文件；卸载应用即移除其全部本地数据。" }
+                            li { "翻译输入（照片 / 截屏 / 文本）不作为图片持久保存；截屏过程的临时图像文件在使用完毕后立即删除。" }
+                        }
+                        h3 { "网络行为" }
+                        ul { class: "about-list",
+                            li { "核心学习与词典功能完全离线，无需任何网络请求。" }
+                            li { "翻译模型：首次使用翻译功能时，从 ModelScope 下行获取公开的模型权重文件（PaddleOCR 识别模型与 HY-MT 翻译模型），不携带任何个人、照片或文本数据，下载文件均按内置 SHA-256 校验完整性；模型就绪后离线运行。" }
+                            li { "本地推理：文字识别与机器翻译均在设备端完成，照片与文本不会被发送到任何服务器。" }
+                            li { "应用内指向项目主页与许可证页面的链接为普通超链接，由系统浏览器打开；应用自身不向你访问的第三方网站传输任何数据。" }
+                        }
+                        h3 { "儿童隐私" }
+                        p { "Synstudy 不收集任何个人信息，也不含社交、用户上传内容或内置购买功能；未满 14 周岁的学习者建议在监护人指导下使用。" }
+                        h3 { "政策更新与联系方式" }
+                        p { "若隐私实践发生重大变化，将随新版本及项目主页的发行说明一并公告。如对本政策有任何疑问，请通过 https://github.com/synvek/synstudy/issues 联系我们。" }
                     }
                 },
             }
