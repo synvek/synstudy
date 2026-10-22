@@ -1219,6 +1219,17 @@ input.file-btn::before { content: attr(data-label); }
   font-size: 16px;
 }
 
+/* 移动端：全局禁用双击缩放。真机症状：学习卡片连续快点「认识」时页面突然
+   放大，再点几下又缩回——WebKit 把落在同一位置的两连击（旧卡片被替换、新按钮
+   恰好在指尖下）误判为 double-tap zoom。touch-action: manipulation 只关闭双击
+   缩放等非标准手势，单指平移滚动与双指捏合缩放均保留（命中链上祖先的限制对
+   后代同样生效，挂在 body 即覆盖全页）。翻译页框选图上的
+   .translate .shot-img { touch-action: none } 在链上取交集后仍为 none，框选不
+   受影响；桌面端无触摸，零影响。 */
+:root[data-platform] body {
+  touch-action: manipulation;
+}
+
 /* ---------------- Blocking alert modal (src/pages/translate.rs) ----------------
    翻译页的 `.translate .status` 在页面顶部：移动端用户滚到下方点「翻译此文本」
    「识别并翻译」时，「模型未下载」这类提示落在屏幕外，等于没有提示。因此同样的
