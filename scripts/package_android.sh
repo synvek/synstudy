@@ -180,6 +180,52 @@ else
   echo "⚠️  缺少 ${ICON_SRC_DIR}；先跑 python3 scripts/gen_icons.py（本次沿用默认图标）" >&2
 fi
 
+# 4c) 注入拍照所需的 FileProvider（translate feature 移动端「拍照」）。
+# wry 的 RustWebChromeClient（onShowFileChooser）把 <input capture> 拍的照
+# 写进 getExternalFilesDir(Pictures) 后，用
+# FileProvider.getUriForFile("<applicationId>.fileprovider", file) 回传给
+# WebView；Manifest 里没注册这个 provider 时 createImageFileUri 直接抛异常，
+# 「拍照」退化成系统文件选择器（打不开相机）。provider 必须位于
+# <application> 内，而 dx 模板的 [android.raw] manifest 插入点在顶层，故只能
+# 构建后置注入（与图标/noCompress 补丁同一机制，dx 每次重建都会覆盖）。
+MANIFEST_FILE="${MODULE_DIR}/src/main/AndroidManifest.xml"
+if [ -f "$MANIFEST_FILE" ]; then
+  if grep -q 'androidx.core.content.FileProvider' "$MANIFEST_FILE"; then
+    echo "==> AndroidManifest.xml 已含 wry FileProvider，跳过注入"
+  else
+    echo "==> 注入 wry FileProvider (\${applicationId}.fileprovider) -> AndroidManifest.xml"
+    awk '
+      /<\/application>/ && !done {
+        print "        <!-- Auto-added by scripts/package_android.sh: FileProvider required by wry camera capture (RustWebChromeClient.createImageFileUri). -->"
+        print "        <provider"
+        print "            android:name=\"androidx.core.content.FileProvider\""
+        print "            android:authorities=\"${applicationId}.fileprovider\""
+        print "            android:exported=\"false\""
+        print "            android:grantUriPermissions=\"true\">"
+        print "            <meta-data"
+        print "                android:name=\"android.support.FILE_PROVIDER_PATHS\""
+        print "                android:resource=\"@xml/wry_file_paths\" />"
+        print "        </provider>"
+        done = 1
+      }
+      { print }
+    ' "$MANIFEST_FILE" > "${MANIFEST_FILE}.tmp" && mv "${MANIFEST_FILE}.tmp" "$MANIFEST_FILE"
+  fi
+  # 拍照临时目录的对外映射路径：对应 wry createImageFile() 的
+  # getExternalFilesDir(Environment.DIRECTORY_PICTURES)。dx 模板不带此文件，
+  # 每次重写（幂等）。
+  mkdir -p "${MODULE_DIR}/src/main/res/xml"
+  cat > "${MODULE_DIR}/src/main/res/xml/wry_file_paths.xml" <<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Served by the injected <provider android:authorities="${applicationId}.fileprovider">:
+     wry writes camera captures to getExternalFilesDir(DIRECTORY_PICTURES). -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-files-path name="images" path="Pictures/" />
+</paths>
+XML
+  echo "==> 已写出 res/xml/wry_file_paths.xml（拍照临时文件映射）"
+fi
+
 # 5) 用 Gradle 产出 APK（这一步才会把 assets 打进包里）。
 echo "==> ./gradlew $GRADLE_TASK"
 ( cd "$GRADLE_ROOT" && ./gradlew "$GRADLE_TASK" )

@@ -50,12 +50,33 @@ pub struct TranslateRequest {
     pub resident: bool,
 }
 
+/// A multi-page scan job: every page is OCR'd in order and the recognized text
+/// is translated as one document, so a photo scanned across several camera shots
+/// still produces a single coherent translation. Mobile-only entry point
+/// (photo-scan translation); gated out of desktop builds to stay warning-free.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+pub struct TranslatePagesRequest {
+    pub images: Vec<DynamicImage>,
+    pub target: String,
+    pub src: String,
+    /// Offload layers to GPU (Metal/Vulkan/CUDA) when loading the MT model.
+    pub gpu: bool,
+    /// Context window for the MT model (desktop 2048 / mobile 1024).
+    pub n_ctx: u32,
+    /// Keep the MT model loaded after this job (off frees memory when idle).
+    pub resident: bool,
+}
+
 /// Commands the UI can send to the worker thread.
 pub enum Command {
     Translate(TranslateRequest),
     /// Translate already-recognized (and possibly user-corrected) text without
     /// running OCR again. Lets the user fix recognition errors and re-translate.
     TranslateText(TextRequest),
+    /// OCR a batch of scanned pages, then translate the combined text in one
+    /// pass (photo-scan translation on mobile).
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    TranslatePages(TranslatePagesRequest),
     DownloadOcr,
     DownloadMt,
     /// Drop any resident models to reclaim memory.
@@ -291,6 +312,58 @@ fn worker(rx: Receiver<Command>, emit: Emitter) {
                 run_mt(
                     &mut mt,
                     &lines.join("\n"),
+                    &req.target,
+                    &req.src,
+                    req.gpu,
+                    req.n_ctx,
+                    req.resident,
+                    &emit,
+                );
+            }
+            #[cfg(any(target_os = "ios", target_os = "android"))]
+            Command::TranslatePages(req) => {
+                // 1) OCR each page in order; the per-page log lets the UI show
+                //    which shot of a multi-page scan is being processed.
+                if ocr.is_none() {
+                    match Ocr::load() {
+                        Ok(o) => ocr = Some(o),
+                        Err(e) => {
+                            emit.send(Msg::Error(e));
+                            continue;
+                        }
+                    }
+                }
+                let total = req.images.len();
+                let mut all: Vec<String> = Vec::with_capacity(total);
+                let mut failed = false;
+                for (i, img) in req.images.iter().enumerate() {
+                    emit.send(Msg::Log(format!("扫描识别第 {}/{} 页…", i + 1, total)));
+                    match ocr.as_mut().unwrap().recognize(img) {
+                        Ok(lines) => all.push(lines.join("\n")),
+                        Err(e) => {
+                            emit.send(Msg::Error(format!("第 {} 页识别失败：{e}", i + 1)));
+                            failed = true;
+                            break;
+                        }
+                    }
+                }
+                if failed {
+                    continue;
+                }
+                // Join pages with a blank line so the translator sees one
+                // document; with a single page there is nothing to join.
+                let text = all
+                    .iter()
+                    .map(|s| s.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                emit.send(Msg::OcrText(vec![text.clone()]));
+
+                // 2) MT over the combined text (streamed back as tokens).
+                run_mt(
+                    &mut mt,
+                    &text,
                     &req.target,
                     &req.src,
                     req.gpu,

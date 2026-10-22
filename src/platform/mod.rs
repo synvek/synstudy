@@ -15,6 +15,11 @@ mod ios;
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 mod native;
 
+// The translate page presents the native camera/album picker directly (the
+// WKWebView file panel is dead for the custom `dioxus://` scheme origin).
+#[cfg(target_os = "ios")]
+pub use ios::pick_image;
+
 use std::path::PathBuf;
 
 /// Initialize platform singletons. Called from `synstudy::main` before

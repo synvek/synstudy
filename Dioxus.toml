@@ -66,12 +66,25 @@ UIApplicationSceneManifest = { UIApplicationSupportsMultipleScenes = true }
 # here gives the Chinese display name). CFBundleName must stay <= 15 chars.
 CFBundleDisplayName = "英语学习词典"
 CFBundleName = "英语学习词典"
-# 翻译功能（Phase 3, `--features translate`）通过 WKWebView 的
-# <input type="file" accept="image/*"> 触发系统「拍照 / 相册 / 文件」选择器。
-# iOS 强制要求以下 usage description，缺失会在用户点击拍照/选照片时崩溃。
-# 只在打包带 translate feature 时才会真正被使用；默认包不触发这些 API。
-NSCameraUsageDescription = "用于拍摄书籍、讲义或试卷截图后进行翻译。"
-NSPhotoLibraryUsageDescription = "用于从相册选择图片后进行翻译。"
+# 翻译权限（NSCameraUsageDescription / NSPhotoLibraryUsageDescription）不再写
+# 在这里：dx 0.8.0-alpha.1 会把下方统一 [permissions] 段的 usage description
+# 与 [ios.plist] 的条目渲染进同一个 Info.plist <dict>，两处都写会产生重复键。
+
+# 翻译功能（translate feature）移动端「拍照 / 相册」的统一权限声明：
+#   * Android → AndroidManifest.xml 生成 CAMERA / READ_MEDIA_IMAGES。
+#     CAMERA 声明后 wry 的 RustWebChromeClient 才会对 <input capture> 走
+#     系统相机（ACTION_IMAGE_CAPTURE）并在运行时申请权限；相册走 SAF
+#     选择器本身免权限，声明仅作商店合规展示。
+#   * iOS → Info.plist 生成 NS*UsageDescription；缺失会在点「拍照」时直接崩溃。
+#   * macOS 也会拿到同名 NS 键（桌面端不触发这些 API，无害）。
+# 拍照临时文件回传还依赖 FileProvider 注册，dx 模板无此配置入口，由
+# scripts/package_android.sh 构建后置注入（见其 4c 步）。
+[permissions.camera]
+description = "用于拍摄书籍、讲义或试卷截图后进行翻译。"
+
+[permissions.photos]
+access = "read"
+description = "用于从相册选择图片后进行翻译。"
 
 [android]
 identifier = "com.synvek.synstudy"

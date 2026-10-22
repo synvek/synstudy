@@ -39,6 +39,8 @@ mod imp {
     use crate::db::{dict_repo::DictRepo, progress_repo::ProgressRepo};
     use crate::state::{now_ts, Settings, SETTINGS_KEY};
     use crate::translate::models::{self, ModelStatus, MT_MODEL, OCR_DET};
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    use crate::translate::TranslatePagesRequest;
     use crate::translate::{engine, Command, Msg, TextRequest, TranslateRequest, LANGS};
 
     /// Context window for the MT model: smaller on mobile to save RAM.
@@ -92,12 +94,26 @@ mod imp {
     const DL_ROW_OCR: &str = "dl-row-ocr";
     const DL_ROW_MT: &str = "dl-row-mt";
 
+    /// DOM id of the OCR/译文 result block — the mobile auto-scroll target
+    /// when a translation finishes. Keep in sync with the rsx below.
+    const RESULT_BLOCK: &str = "translate-result";
+
     /// Outcome of a background capture / file-dialog / region-grab thread, pushed
     /// onto a shared queue and drained by the UI poll loop (signals can only be
     /// written from the reactive context, never from the worker thread itself).
     enum CaptureOutcome {
         /// A fresh frame is ready: the image plus a status note for the UI.
+        /// Desktop-only: mobile captures always arrive as `AppendPages` batches.
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         Ready(DynamicImage, String),
+        /// A batch of scanned pages (mobile camera shots / multi-select album):
+        /// appended to the page collection, with the last one shown.
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        AppendPages(Vec<DynamicImage>),
+        /// A touch box-select reported by the mobile JS pointer bridge, in
+        /// image pixels (x, y, w, h).
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        Roi((f64, f64, f64, f64)),
         /// The operation failed: an error message to surface in the status line.
         Failed(String),
     }
@@ -116,6 +132,8 @@ mod imp {
     ///
     /// `target` / `src` are deliberately not here: they are re-seeded from the
     /// persisted `Settings` on every mount, which yields the same value.
+    /// Contexts always outlive the page, so creating the extra signals here is
+    /// safe even when this component unmounts and remounts.
     #[derive(Clone, Copy)]
     pub struct PageStore {
         ui: Signal<Ui>,
@@ -124,6 +142,120 @@ mod imp {
         roi: Signal<Option<(f64, f64, f64, f64)>>,
         drag: Signal<Option<(f64, f64)>>,
         capture_out: Signal<CaptureQueue>,
+        /// Scanned pages (mobile 拍照/相册批量导入); the frame/preview signals
+        /// always mirror the selected entry. A desktop single capture is stored
+        /// as a one-page collection, so 「全部页」 stays correct everywhere.
+        pages: Signal<Vec<DynamicImage>>,
+        /// Index of the page currently shown in the preview.
+        sel: Signal<usize>,
+        /// Encode slots for the strip thumbnails: one entry per page, each
+        /// `None` until the poll loop has JPEG-encoded that page (one per
+        /// tick), `Some(Some(uri))` when done, `Some(None)` on encode failure.
+        /// Encoding full-size camera photos on every poll tick would be far too
+        /// slow, hence the lazy per-slot cache.
+        thumbs: Signal<Vec<Option<Option<String>>>>,
+    }
+
+    /// Copy handle for page-collection operations inside per-thumbnail click
+    /// closures (a `FnMut` closure capturing Signal is not `Copy`, so the
+    /// project convention wraps them in a small `Copy` struct).
+    /// Signal's mutators need a `mut` binding, so every body starts by
+    /// rebinding the Copy handle (same idiom as `apply_frame` below).
+    /// Mobile-only: only the scan strip (and `PageOps`) drive the collection.
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    #[derive(Clone, Copy)]
+    struct PageSel {
+        pages: Signal<Vec<DynamicImage>>,
+        sel: Signal<usize>,
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    impl PageSel {
+        /// Make page `i` the current frame: refresh the preview, reset the ROI
+        /// and clear the previous results (they belong to the old page).
+        fn select(
+            self,
+            i: usize,
+            mut preview: Signal<Option<String>>,
+            mut frame: Signal<Option<DynamicImage>>,
+            mut roi: Signal<Option<(f64, f64, f64, f64)>>,
+            mut ui: Signal<Ui>,
+        ) {
+            let Some(img) = self.pages.read().get(i).cloned() else { return };
+            let mut sel = self.sel;
+            sel.set(i);
+            preview.set(to_data_uri(&img));
+            frame.set(Some(img));
+            roi.set(None);
+            ui.with_mut(|u| {
+                u.ocr.clear();
+                u.translation.clear();
+            });
+        }
+
+        /// Drop one page, clamping the selection; when the last page goes the
+        /// preview returns to the empty-state hint.
+        fn remove(
+            self,
+            i: usize,
+            mut preview: Signal<Option<String>>,
+            mut frame: Signal<Option<DynamicImage>>,
+            mut roi: Signal<Option<(f64, f64, f64, f64)>>,
+            ui: Signal<Ui>,
+        ) {
+            if i >= self.pages.read().len() {
+                return;
+            }
+            let mut pages = self.pages;
+            pages.with_mut(|p| p.remove(i));
+            let len = self.pages.read().len();
+            if len == 0 {
+                let mut sel = self.sel;
+                preview.set(None);
+                frame.set(None);
+                roi.set(None);
+                sel.set(0);
+            } else {
+                let keep = self.sel.read().min(len - 1);
+                self.select(keep, preview, frame, roi, ui);
+            }
+        }
+    }
+
+    /// Copy handle for the per-thumbnail click closures of the scan strip:
+    /// built on mobile only, where the strip itself is rendered.
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    #[derive(Clone, Copy)]
+    struct PageOps {
+        inner: PageSel,
+        preview: Signal<Option<String>>,
+        frame: Signal<Option<DynamicImage>>,
+        roi: Signal<Option<(f64, f64, f64, f64)>>,
+        ui: Signal<Ui>,
+        thumbs: Signal<Vec<Option<Option<String>>>>,
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    impl PageOps {
+        /// Show page `i` as the current frame (resets its ROI and results).
+        fn select(self, i: usize) {
+            self.inner.select(i, self.preview, self.frame, self.roi, self.ui);
+        }
+
+        /// Drop page `i`; the selection clamp inside `PageSel::remove` re-shows
+        /// a surviving page, so the preview never goes blank while pages stay.
+        /// The removed tile's thumbnail slot is retired with the page; every
+        /// later slot now points at the wrong image, so from `i` on they are
+        /// cleared to `None` and the poll loop re-encodes one per tick.
+        fn remove(self, i: usize) {
+            self.inner.remove(i, self.preview, self.frame, self.roi, self.ui);
+            let mut thumbs = self.thumbs;
+            thumbs.with_mut(|t| {
+                if i < t.len() {
+                    t[i..].fill(None);
+                }
+            });
+        }
     }
 
     impl PageStore {
@@ -141,8 +273,31 @@ mod imp {
                 capture_out: Signal::new(std::sync::Arc::new(std::sync::Mutex::new(
                     std::collections::VecDeque::new(),
                 ))),
+                pages: Signal::new(Vec::new()),
+                sel: Signal::new(0),
+                thumbs: Signal::new(Vec::new()),
             }
         }
+    }
+
+    /// Target width (CSS px) of a scan-strip thumbnail before JPEG re-encode.
+    const THUMB_W: u32 = 144;
+
+    /// Small JPEG data-URI for the scan strip; returns `None` on any encode
+    /// failure so the thumbnail simply shows as a blank tile.
+    fn to_thumb_uri(img: &DynamicImage) -> Option<String> {
+        if img.width() == 0 || img.height() == 0 {
+            return None;
+        }
+        let th = img.resize(
+            THUMB_W,
+            (THUMB_W as f64 * img.height() as f64 / img.width() as f64).max(1.0) as u32,
+            image::imageops::FilterType::Triangle,
+        );
+        let mut buf: Vec<u8> = Vec::new();
+        th.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
+            .ok()?;
+        Some(format!("data:image/jpeg;base64,{}", b64(&buf)))
     }
 
     /// Minimal standard-base64 encoder (no extra dependency) for the PNG preview.
@@ -183,6 +338,26 @@ mod imp {
             .decode(b64_part)
             .map_err(|e| format!("base64 解码: {e}"))?;
         image::load_from_memory(&bytes).map_err(|e| format!("图片解码: {e}"))
+    }
+
+    /// Rotate/flip a picker image per the `UIImageOrientation` value reported
+    /// by `UIImagePickerController` (see platform/ios.rs — the JPEG pixels are
+    /// sensor-raw and the `image` crate ignores EXIF orientation, so portrait
+    /// shots land sideways unless we apply the transform ourselves).
+    /// UIImageOrientation maps onto EXIF orientations 1/3/8/6/2/4/5/7; the
+    /// arms below are the standard EXIF display transforms.
+    #[cfg(target_os = "ios")]
+    fn apply_ui_orientation(img: DynamicImage, orientation: u8) -> DynamicImage {
+        match orientation {
+            1 => img.rotate180(), // down (EXIF 3)
+            2 => img.rotate270(), // left (EXIF 8)
+            3 => img.rotate90(),  // right (EXIF 6) — the common portrait shot
+            4 => img.fliph(),     // upMirrored (EXIF 2)
+            5 => img.flipv(),     // downMirrored (EXIF 4)
+            6 => img.rotate90().fliph(),  // leftMirrored (EXIF 5, transpose)
+            7 => img.rotate270().fliph(), // rightMirrored (EXIF 7, transverse)
+            _ => img,             // up (0) or unknown: already upright
+        }
     }
 
     fn to_data_uri(img: &DynamicImage) -> Option<String> {
@@ -235,22 +410,63 @@ mod imp {
         let capture_out = store.capture_out;
 
         // Fold a freshly obtained frame into the preview (reset ROI + results).
+        // A single capture replaces the whole page collection: 截图/打开图片 is
+        // a fresh start, not an addition to a previous scan.
         // Only ever called from the reactive poll loop, never from a worker. The
         // captured signals are Copy handles, so we shadow them as `mut` locals to
         // keep this an `Fn` closure (`.set` needs `&mut`, but not of the capture).
+        // Desktop-only: mobile frames go through `apply_pages` (scan collection).
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         let apply_frame = move |img: DynamicImage, note: String| {
             let mut preview = preview;
             let mut frame = frame;
             let mut roi = roi;
             let mut ui = ui;
-            preview.set(to_data_uri(&img));
-            frame.set(Some(img));
+            let mut pages = store.pages;
+            let mut sel = store.sel;
+            let mut thumbs = store.thumbs;
             roi.set(None);
+            preview.set(to_data_uri(&img));
+            // A single capture is a one-page collection, so 「翻译全部页」 and the
+            // strip logic stay uniform across platforms (strip hides at <2).
+            // Clone before the move into `frame` (DynamicImage is not Copy).
+            pages.set(vec![img.clone()]);
+            sel.set(0);
+            thumbs.set(vec![None]);
+            frame.set(Some(img));
             ui.with_mut(|u| {
                 u.status = note;
                 u.ocr.clear();
                 u.translation.clear();
             });
+        };
+
+        // Append a batch of scanned pages (mobile camera shot / album
+        // multi-select) and show the newest one. Same reactive-only contract as
+        // `apply_frame`.
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        let apply_pages = move |imgs: Vec<DynamicImage>, note: String| {
+            let mut pages = store.pages;
+            let mut thumbs = store.thumbs;
+            let mut ui = ui;
+            if imgs.is_empty() {
+                return;
+            }
+            pages.with_mut(|p| p.extend(imgs));
+            // Placeholder slots: the poll loop encodes one thumbnail per tick.
+            thumbs.with_mut(|t| t.resize(store.pages.read().len(), None));
+            PageSel {
+                pages: store.pages,
+                sel: store.sel,
+            }
+            .select(
+                store.pages.read().len() - 1,
+                preview,
+                frame,
+                roi,
+                ui,
+            );
+            ui.with_mut(|u| u.status = note);
         };
 
         // Poll the engine inbox and fold messages into UI state. Runs for the
@@ -286,11 +502,47 @@ mod imp {
                         Msg::Token(piece) => {
                             ui.with_mut(|u| u.translation.push_str(&piece));
                         }
-                        Msg::Done(full) => ui.with_mut(|u| {
-                            u.busy = false;
-                            u.translation = full;
-                            u.status = "翻译完成".to_string();
-                        }),
+                        Msg::Done(full) => {
+                            ui.with_mut(|u| {
+                                u.busy = false;
+                                u.translation = full;
+                                u.status = "翻译完成".to_string();
+                            });
+                            // Mobile: pull the result block into view the moment a
+                            // translation finishes — the 识别翻译 button sits above a
+                            // tall preview, so the answer would otherwise render off-
+                            // screen below the fold. Fired here in the poll loop, NOT
+                            // in a `use_effect`: Dioxus 0.8 wraps effect closures in
+                            // `use_callback`, which *replaces* the stored closure on
+                            // every re-render — any dedupe guard captured inside it is
+                            // re-seeded from the just-incremented state before the
+                            // effect reruns, so it never sees a change (this killed
+                            // two earlier attempts on device). `Done` is a discrete
+                            // event, so no guard is needed at all.
+                            //
+                            // Also avoid plain `scrollIntoView`: the app shell is
+                            // `html,body{overflow:hidden}` + `.content{overflow-y:
+                            // auto}`, so the real scroller is `.content`. Scroll it
+                            // explicitly by rect math, and repeat once after 300ms in
+                            // case the layout is still settling (the final translation
+                            // text is committed to the DOM right after this eval).
+                            #[cfg(any(target_os = "ios", target_os = "android"))]
+                            document::eval(&format!(
+                                "function __synstudyScrollResult() {{\
+                                     var el = document.getElementById('{RESULT_BLOCK}');\
+                                     var sc = document.querySelector('.content');\
+                                     if (!el) return;\
+                                     if (sc) {{\
+                                         var d = el.getBoundingClientRect().top - sc.getBoundingClientRect().top;\
+                                         sc.scrollTo({{ top: sc.scrollTop + d - 12, behavior: 'smooth' }});\
+                                     }} else {{\
+                                         el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});\
+                                     }}\
+                                 }}\
+                                 __synstudyScrollResult();\
+                                 setTimeout(__synstudyScrollResult, 300);"
+                            ));
+                        }
                         Msg::Error(e) => ui.with_mut(|u| {
                             u.busy = false;
                             u.status = format!("出错：{e}");
@@ -306,69 +558,234 @@ mod imp {
                     .unwrap_or_default();
                 for out in done {
                     match out {
+                        #[cfg(not(any(target_os = "ios", target_os = "android")))]
                         CaptureOutcome::Ready(img, note) => apply_frame(img, note),
+                        #[cfg(any(target_os = "ios", target_os = "android"))]
+                        CaptureOutcome::AppendPages(imgs) => apply_pages(
+                            imgs,
+                            "已加入扫描页：可在图上滑动框选当前页，或点「翻译全部页」一次识别整叠照片。"
+                                .to_string(),
+                        ),
+                        #[cfg(any(target_os = "ios", target_os = "android"))]
+                        CaptureOutcome::Roi(rect) => {
+                            roi.set(Some(rect));
+                        }
                         CaptureOutcome::Failed(msg) => ui.with_mut(|u| u.status = msg),
                     }
+                }
+                // Encode at most one pending strip thumbnail per tick so a batch
+                // of fresh camera photos never blocks the UI in one long frame.
+                // (Position is computed in its own statement: the read guard on
+                // `thumbs` must be dropped before the write below.)
+                let pending = store
+                    .thumbs
+                    .read()
+                    .iter()
+                    .position(|slot| slot.is_none());
+                if let Some(i) = pending {
+                    let uri = store.pages.read().get(i).and_then(to_thumb_uri);
+                    let mut thumbs = store.thumbs;
+                    thumbs.with_mut(|t| {
+                        if let Some(slot) = t.get_mut(i) {
+                            *slot = Some(uri);
+                        }
+                    });
                 }
             }
         });
 
-        // --- mobile file picker (iOS / Android) --------------------------------
+        // --- mobile photo input & touch ROI (iOS / Android) ---------------------
         // On WKWebView (iOS) and Android WebView, `<input type="file">` opens the
-        // native system picker (Camera / Photo Library / Files). Dioxus's native
-        // file bridge doesn't carry file bytes across IPC on those platforms, so
-        // we inject a persistent JS listener via `document::eval` that reads each
-        // selected file with `FileReader.readAsDataURL` and sends the base64
-        // result back through the `dioxus.send()` channel.
+        // native system picker; with `capture` it goes straight to the camera.
+        // Dioxus's native file bridge doesn't carry file bytes across IPC on
+        // those platforms, so we inject persistent JS listeners via
+        // `document::eval` that read each selected file with
+        // `FileReader.readAsDataURL` and send a JSON envelope back through the
+        // `dioxus.send()` channel:
+        //   {"kind":"file","uris":[dataUrl,...]}  one or many picked photos
+        //   {"kind":"roi","x":..,"y":..,"w":..,"h":..}
+        //       a pointer (touch) box-select on the preview image, in image
+        //       pixels. Mouse drag stays on the Rust handlers (desktop); the JS
+        //       listener filters `pointerType == 'mouse'` out so the two paths
+        //       never double-report on hybrids.
         #[cfg(any(target_os = "ios", target_os = "android"))]
         {
             let q_capture = capture_out;
+            #[derive(serde::Deserialize)]
+            struct Bridge {
+                #[serde(default)]
+                kind: String,
+                #[serde(default)]
+                uris: Vec<String>,
+                #[serde(default)]
+                x: f64,
+                #[serde(default)]
+                y: f64,
+                #[serde(default)]
+                w: f64,
+                #[serde(default)]
+                h: f64,
+            }
             use_future(move || async move {
-                // The JS sets up an onchange handler on the hidden file input.
-                // Each file pick produces one `dioxus.send(dataUrl)` message.
                 let mut eval = document::eval(
                     r#"
-                    const input = document.getElementById('mobile-translate-file-input');
-                    if (input) {
-                        input.onchange = (e) => {
-                            const file = e.target.files && e.target.files[0];
-                            if (file) {
-                                const reader = new FileReader();
-                                reader.onload = () => {
-                                    dioxus.send(reader.result);
-                                    reader.onload = null;
-                                };
-                                reader.onerror = () => { dioxus.send(''); };
-                                reader.readAsDataURL(file);
-                            }
-                            input.value = '';
-                        };
+                    const FILES = (input) => {
+                        const fs = Array.from(input.files || []);
+                        input.value = '';
+                        if (!fs.length) return;
+                        let pending = fs.length;
+                        const uris = new Array(fs.length);
+                        fs.forEach((file, i) => {
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                                uris[i] = reader.result;
+                                if (--pending === 0) {
+                                    dioxus.send(JSON.stringify({ kind: 'file', uris }));
+                                }
+                            };
+                            reader.onerror = () => {
+                                if (--pending === 0) {
+                                    dioxus.send(JSON.stringify({ kind: 'file', uris: [] }));
+                                }
+                            };
+                            reader.readAsDataURL(file);
+                        });
+                    };
+                    // File picks: a *delegated* change listener on document,
+                    // not `input.onchange = …` at eval time — this eval can
+                    // race the page's first DOM flush (both travel over the
+                    // same async IPC), and a missed binding would leave the
+                    // picker silently dead. It also *replaces* the previous
+                    // mount's handler: each eval owns a fresh Rust channel, and
+                    // a listener closing over the old, dropped one would lose
+                    // every later `dioxus.send`.
+                    const pick = (e) => {
+                        const t = e.target;
+                        if (t && t.tagName === 'INPUT'
+                            && (t.id === 'mobile-translate-camera-input'
+                                || t.id === 'mobile-translate-album-input')) {
+                            FILES(t);
+                        }
+                    };
+                    if (window.__synstudyFilePick) {
+                        document.removeEventListener('change', window.__synstudyFilePick);
                     }
+                    window.__synstudyFilePick = pick;
+                    document.addEventListener('change', pick);
+                    // Touch box-select over the preview image. The img renders
+                    // at its natural pixel size, but page-level pinch zoom (the
+                    // one thing users do to aim a ROI on a phone) scales it, so
+                    // divide through the rendered/natural ratio to get pixels.
+                    // Same replace-on-eval pattern as the file listener above:
+                    // a bind-once guard would keep the pointer handlers closed
+                    // over a stale, dropped channel after a page remount.
+                    if (window.__synstudyRoiHandlers) {
+                        const old = window.__synstudyRoiHandlers;
+                        document.removeEventListener('pointerdown', old.down);
+                        document.removeEventListener('pointermove', old.move);
+                        document.removeEventListener('pointerup', old.up);
+                        document.removeEventListener('pointercancel', old.cancel);
+                    }
+                    let anchor = null;
+                    const pt = (e) => {
+                        const img = e.target.closest && e.target.closest('.shot-img');
+                        if (!img) return null;
+                        const r = img.getBoundingClientRect();
+                        if (!r.width || !img.naturalWidth) return null;
+                        const s = img.naturalWidth / r.width;
+                        return { x: (e.clientX - r.left) * s, y: (e.clientY - r.top) * s };
+                    };
+                    const sendBox = (a, b) => dioxus.send(JSON.stringify({
+                        kind: 'roi',
+                        x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+                        w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y),
+                    }));
+                    const down = (e) => {
+                        if (e.pointerType === 'mouse') return;
+                        anchor = pt(e);
+                        if (anchor) e.preventDefault();
+                    };
+                    const move = (e) => {
+                        if (!anchor || e.pointerType === 'mouse') return;
+                        const p = pt(e);
+                        if (p) { e.preventDefault(); sendBox(anchor, p); }
+                    };
+                    const up = (e) => {
+                        if (!anchor || e.pointerType === 'mouse') return;
+                        const p = pt(e);
+                        if (p) sendBox(anchor, p);
+                        anchor = null;
+                    };
+                    const cancel = () => { anchor = null; };
+                    document.addEventListener('pointerdown', down, { passive: false });
+                    document.addEventListener('pointermove', move, { passive: false });
+                    document.addEventListener('pointerup', up);
+                    document.addEventListener('pointercancel', cancel);
+                    window.__synstudyRoiHandlers = { down, move, up, cancel };
                     "#,
                 );
                 loop {
                     match eval.recv::<String>().await {
-                        Ok(data_url) if !data_url.is_empty() => {
-                            match decode_data_url(&data_url) {
-                                Ok(img) => {
-                                    let note = "已选择图片：可拖拽框选区域或用数值选区，或直接点「识别并翻译」处理整图。".to_string();
-                                    if let Ok(mut q) = q_capture.read().lock() {
-                                        q.push_back(CaptureOutcome::Ready(img, note));
+                        Ok(json) => {
+                            let b: Bridge = match serde_json::from_str(&json) {
+                                Ok(b) => b,
+                                Err(_) => continue,
+                            };
+                            let out = match b.kind.as_str() {
+                                "roi" => Some(CaptureOutcome::Roi((b.x, b.y, b.w, b.h))),
+                                _ => 'decode: {
+                                    let mut imgs = Vec::new();
+                                    for uri in &b.uris {
+                                        match decode_data_url(uri) {
+                                            Ok(img) => imgs.push(img),
+                                            Err(e) => break 'decode Some(CaptureOutcome::Failed(e)),
+                                        }
+                                    }
+                                    if imgs.is_empty() {
+                                        if b.uris.is_empty() {
+                                            None // picker cancelled: stay silent
+                                        } else {
+                                            Some(CaptureOutcome::Failed(
+                                                "图片解码失败".to_string(),
+                                            ))
+                                        }
+                                    } else {
+                                        Some(CaptureOutcome::AppendPages(imgs))
                                     }
                                 }
-                                Err(e) => {
-                                    if let Ok(mut q) = q_capture.read().lock() {
-                                        q.push_back(CaptureOutcome::Failed(format!("{}", e)));
-                                    }
+                            };
+                            if let Some(out) = out {
+                                if let Ok(mut q) = q_capture.read().lock() {
+                                    q.push_back(out);
                                 }
                             }
                         }
-                        Ok(_) => continue, // empty send = reader error
-                        Err(_) => break,   // eval channel closed (page unmount)
+                        Err(_) => break, // eval channel closed (page unmount)
                     }
                 }
             });
         }
+
+        // ROI overlay position as a percentage of the *natural* frame size.
+        // Mobile fits the preview to the pane width (main.css), so px offsets
+        // would misalign at the reduced scale; percentages track the rendered
+        // box at any scale. Desktop renders 1:1, where % and px coincide.
+        let roi_style = {
+            let nat = frame
+                .read()
+                .as_ref()
+                .map(|img| (img.width() as f64, img.height() as f64));
+            match (roi(), nat) {
+                (Some((x, y, w, h)), Some((nw, nh))) if nw > 0.0 && nh > 0.0 => format!(
+                    "left:{:.4}%;top:{:.4}%;width:{:.4}%;height:{:.4}%",
+                    x / nw * 100.0,
+                    y / nh * 100.0,
+                    w / nw * 100.0,
+                    h / nh * 100.0
+                ),
+                _ => String::new(),
+            }
+        };
 
         let cur = ui();
         let target_val = target();
@@ -486,18 +903,163 @@ mod imp {
             }
         };
         #[cfg(any(target_os = "ios", target_os = "android"))]
-        let capture_group = {
-            // Mobile: trigger the hidden file input via JS .click() (WKWebView
-            // shows the native Camera / Photo Library / Files action sheet).
-            let do_pick = move |_| {
-                document::eval(
-                    "document.getElementById('mobile-translate-file-input')?.click();",
-                );
+        let (capture_group, batch_group) = {
+            // Photo-scan translation: OCR every page in order, then translate
+            // the combined text as one document (engine-side
+            // `Command::TranslatePages`). One model load serves the whole batch.
+            let do_translate_all = move |_| {
+                if !ocr_ready {
+                    ui.with_mut(|u| {
+                        u.raise(
+                            "还未下载 OCR 模型（约 21 MB），无法识别图片文字。请在下方「模型」区下载后重试。",
+                            Some(DL_ROW_OCR),
+                        )
+                    });
+                    return;
+                }
+                if !mt_ready {
+                    ui.with_mut(|u| {
+                        u.raise(
+                            "还未下载翻译模型 HY-MT1.5-1.8B（约 1.1 GB），无法翻译。请在下方「模型」区下载后重试。",
+                            Some(DL_ROW_MT),
+                        )
+                    });
+                    return;
+                }
+                let imgs: Vec<DynamicImage> = store.pages.read().clone();
+                if imgs.is_empty() {
+                    ui.with_mut(|u| u.status = "请先拍照或从相册选择图片".to_string());
+                    return;
+                }
+                let s = settings.read().clone();
+                engine().send(Command::TranslatePages(TranslatePagesRequest {
+                    images: imgs,
+                    target: s.translate_target_lang.clone(),
+                    src: s.translate_src_lang.clone(),
+                    gpu: s.translate_gpu,
+                    n_ctx: default_n_ctx(),
+                    resident: s.translate_keep_model_resident,
+                }));
+                ui.with_mut(|u| {
+                    u.busy = true;
+                    u.translation.clear();
+                    u.ocr.clear();
+                    u.status = "扫描翻译中…".to_string();
+                });
             };
-            rsx! {
-                button { class: "btn", onclick: do_pick, "选择图片" }
-            }
+            // Drop the whole scan collection and return to the empty state.
+            let do_clear_pages = move |_| {
+                let (mut pages, mut thumbs, mut sel) = (store.pages, store.thumbs, store.sel);
+                let (mut preview, mut frame, mut roi) = (preview, frame, roi);
+                pages.set(Vec::new());
+                thumbs.set(Vec::new());
+                sel.set(0);
+                preview.set(None);
+                frame.set(None);
+                roi.set(None);
+                ui.with_mut(|u| {
+                    u.ocr.clear();
+                    u.translation.clear();
+                    u.status = "已清空扫描页".to_string();
+                });
+            };
+            // 拍照/相册 entry points, split by platform:
+            //
+            // iOS — native `UIImagePickerController` (see platform/ios.rs).
+            // The HTML `<input type="file">` route is dead there: WKWebView
+            // silently refuses the file panel for the custom `dioxus://`
+            // scheme origin, no matter how the input is activated (all three
+            // gesture-preserving variants were verified dead on device). The
+            // picked image arrives as JPEG bytes over an mpsc channel; a
+            // worker thread decodes it into the same `capture_out` queue the
+            // rest of the capture flows use.
+            //
+            // Android — the HTML inputs stay: wry implements
+            // `onShowFileChooser` (ACTION_IMAGE_CAPTURE + FileProvider for the
+            // camera, ACTION_GET_CONTENT for the album), so the WebView file
+            // panel genuinely works there. `.file-btn` (main.css) renders the
+            // input itself as the button; results arrive through the
+            // delegated change listener of the JS bridge above (same ids).
+            #[cfg(target_os = "ios")]
+            let pick_group = {
+                let q_pick = capture_out;
+                let desktop = dioxus::desktop::use_window();
+                let do_pick = move |camera: bool| {
+                    let (tx, rx) = std::sync::mpsc::channel::<(Vec<u8>, u8)>();
+                    let vc = desktop.ui_view_controller();
+                    match crate::platform::pick_image(camera, &vc, tx) {
+                        Ok(()) => {
+                            let q = q_pick.read().clone();
+                            std::thread::spawn(move || {
+                                while let Ok((bytes, orientation)) = rx.recv() {
+                                    let out = match image::load_from_memory(&bytes) {
+                                        Ok(img) => CaptureOutcome::AppendPages(vec![
+                                            apply_ui_orientation(img, orientation),
+                                        ]),
+                                        Err(e) => {
+                                            CaptureOutcome::Failed(format!("图片解码失败：{e}"))
+                                        }
+                                    };
+                                    if let Ok(mut q) = q.lock() {
+                                        q.push_back(out);
+                                    }
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            if let Ok(mut q) = q_pick.read().lock() {
+                                q.push_back(CaptureOutcome::Failed(e));
+                            }
+                        }
+                    }
+                };
+                let pick_cam = do_pick.clone();
+                let pick_album = do_pick;
+                rsx! {
+                    button { class: "btn", onclick: move |_| pick_cam(true), "拍照" }
+                    button { class: "btn", onclick: move |_| pick_album(false), "相册" }
+                }
+            };
+            #[cfg(target_os = "android")]
+            let pick_group = rsx! {
+                input {
+                    class: "btn file-btn",
+                    id: "mobile-translate-camera-input",
+                    r#type: "file",
+                    accept: "image/*",
+                    capture: "environment",
+                    "data-label": "拍照",
+                }
+                input {
+                    class: "btn file-btn",
+                    id: "mobile-translate-album-input",
+                    r#type: "file",
+                    accept: "image/*",
+                    multiple: "true",
+                    "data-label": "相册",
+                }
+            };
+            let n_pages = store.pages.read().len();
+            // Two separate fragments: 拍照/相册 always sit on the first row,
+            // the batch actions join the second row alongside the language
+            // selects (see .capture-row in main.css).
+            (
+                rsx! { {pick_group} },
+                rsx! {
+                    if n_pages > 1 {
+                        button {
+                            class: "btn",
+                            disabled: cur.busy,
+                            onclick: do_translate_all,
+                            "翻译全部 {n_pages} 页"
+                        }
+                        button { class: "btn ghost", onclick: do_clear_pages, "清空" }
+                    }
+                },
+            )
         };
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        let batch_group = rsx! {};
 
         let do_translate = move |_| {
             // 模型缺失在点击时就地预检：引擎报的「…（请先下载）」是异步回到顶部
@@ -669,6 +1231,52 @@ mod imp {
         };
         let on_up = move |_| drag.set(None);
 
+        // Fullscreen viewer state. Tapping the (mobile-fitted, small) preview
+        // opens a full-viewport overlay where the same image is shown as large
+        // as the screen allows and box-select keeps working: the desktop mouse
+        // handlers bind to `.fs-frame` (image stays 1:1 there, viewer scrolls),
+        // and the mobile JS touch bridge matches `.shot-img`, which the
+        // fullscreen image also carries (ratio conversion included).
+        let mut fullscreen = use_signal(|| false);
+        // Manual 90° rotation of the current page (fullscreen viewer buttons):
+        // fixes photos whose embedded orientation was missing or wrong, and
+        // keeps the stored page, preview, frame and thumbnail in sync. The old
+        // ROI is dropped since the axes swap.
+        let do_rotate = move |clockwise: bool| {
+            let idx = *store.sel.read();
+            let (mut pages, mut thumbs) = (store.pages, store.thumbs);
+            let (mut preview, mut frame, mut roi) = (preview, frame, roi);
+            let Some(img) = pages.read().get(idx).cloned() else {
+                return;
+            };
+            let rotated = if clockwise {
+                img.rotate90()
+            } else {
+                img.rotate270()
+            };
+            pages.with_mut(|p| {
+                if let Some(slot) = p.get_mut(idx) {
+                    *slot = rotated.clone();
+                }
+            });
+            thumbs.with_mut(|t| {
+                if let Some(slot) = t.get_mut(idx) {
+                    *slot = None; // poll loop re-encodes one thumb per tick
+                }
+            });
+            preview.set(to_data_uri(&rotated));
+            frame.set(Some(rotated));
+            roi.set(None);
+        };
+        let rot_ccw = do_rotate.clone();
+        let rot_cw = do_rotate;
+        // Mobile-only trigger: on desktop the image click is owned by ROI
+        // dragging, and a small stray drag would otherwise pop the viewer.
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        let open_fs = move |_: Event<MouseData>| fullscreen.set(true);
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        let open_fs = move |_: Event<MouseData>| {};
+
         // Numeric fine-tuning of the selection (image pixels): guarantees
         // "select position and size" even where drag coordinates are unreliable.
         let set_roi_axis = move |axis: usize, v: f64| {
@@ -692,10 +1300,76 @@ mod imp {
         });
 
         let empty_hint = if cfg!(any(target_os = "ios", target_os = "android")) {
-            "点击「选择图片」从相册/相机取图开始；也可直接在右下「识别文本」框输入文字后点「翻译此文本」。首次使用需在下方下载模型。"
+            "点「拍照」直接取景拍摄（每拍一张加入扫描集），或「相册」一次多选多张；也可直接在右下「识别文本」框输入文字后点「翻译此文本」。首次使用需在下方下载模型。"
         } else {
             "点击「截取屏幕」「框选区域」或「打开图片」开始，或在下方下载模型后使用。"
         };
+
+        // Scan strip (≥2 pages): tap a thumbnail to switch the current frame,
+        // × removes one page. Built as an `Element` before the page rsx because
+        // rsx! children cannot hold `let` bindings (same pattern as the alert
+        // modal below). Mobile-gated: on desktop the capture pipeline only ever
+        // holds a one-page collection, so nothing is constructed there.
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        let scan_strip = {
+            let page_ops = PageOps {
+                inner: PageSel {
+                    pages: store.pages,
+                    sel: store.sel,
+                },
+                preview,
+                frame,
+                roi,
+                ui,
+                thumbs: store.thumbs,
+            };
+            // (is_current, 1-based page number, thumbnail URI once encoded).
+            let strip_items: Vec<(bool, usize, Option<String>)> = {
+                let sel = *store.sel.read();
+                let thumbs = store.thumbs.read();
+                (0..store.pages.read().len())
+                    .map(|i| {
+                        (
+                            i == sel,
+                            i + 1,
+                            thumbs.get(i).and_then(|s| s.clone()).flatten(),
+                        )
+                    })
+                    .collect()
+            };
+            if strip_items.len() > 1 {
+                let count = strip_items.len();
+                rsx! {
+                    div { class: "scan-strip",
+                        span { class: "scan-label", "扫描 {count} 页" }
+                        for (i, (active, page_no, uri)) in strip_items.iter().enumerate() {
+                            div { key: "{page_no}", class: "scan-tile",
+                                button {
+                                    class: if *active { "scan-thumb active" } else { "scan-thumb" },
+                                    disabled: cur.busy,
+                                    onclick: move |_| page_ops.select(i),
+                                    if let Some(u) = uri.as_ref() {
+                                        img { class: "scan-thumb-img", src: "{u}", alt: "第 {page_no} 页" }
+                                    }
+                                    span { class: "scan-thumb-no", "{page_no}" }
+                                }
+                                button {
+                                    class: "scan-x",
+                                    title: "移除此页",
+                                    disabled: cur.busy,
+                                    onclick: move |_| page_ops.remove(i),
+                                    "×"
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                rsx! {}
+            }
+        };
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        let scan_strip = rsx! {};
 
         // Blocking notice: the status line sits above the fold and is invisible to
         // a mobile user who tapped a button at the bottom of the page, so the same
@@ -737,18 +1411,16 @@ mod imp {
 
         rsx! {
             div { class: "page translate",
-                // Hidden file input for the mobile picker (iOS/Android); harmless
-                // on desktop where the eval listener is never started.
-                input {
-                    id: "mobile-translate-file-input",
-                    r#type: "file",
-                    accept: "image/*",
-                    style: "display:none",
-                }
                 div { class: "page-head",
                     h1 { "翻译" }
                     div { class: "translate-actions",
-                        {capture_group}
+                        // Mobile wraps deliberately onto two rows: this first
+                        // row holds only 拍照/相册; the second row carries the
+                        // batch actions, language selects and translate
+                        // buttons. Desktop keeps one inline row (display:
+                        // contents on .capture-row).
+                        div { class: "capture-row", {capture_group} }
+                        {batch_group}
                         select {
                             class: "select",
                             title: "源语言（可自动识别）",
@@ -802,15 +1474,22 @@ mod imp {
                                     onmousemove: on_move,
                                     onmouseup: on_up,
                                     onmouseleave: on_up,
-                                    img { class: "shot-img", src: "{uri}", alt: "截图预览", draggable: "false" }
-                                    if let Some((x, y, w, h)) = roi() {
-                                        div {
-                                            class: "roi",
-                                            style: "left:{x}px;top:{y}px;width:{w}px;height:{h}px"
-                                        }
+                                    img {
+                                        class: "shot-img",
+                                        src: "{uri}",
+                                        alt: "截图预览",
+                                        draggable: "false",
+                                        onclick: open_fs,
+                                    }
+                                    if !roi_style.is_empty() {
+                                        div { class: "roi", style: "{roi_style}" }
                                     }
                                 }
                             }
+                            // Page strip of a multi-shot scan (mobile only);
+                            // sits between the image and the ROI editors so the
+                            // selection always refers to the visible frame.
+                            {scan_strip}
                             // Precise position/size editors (image pixels), the
                             // reliable fallback wherever drag is unavailable.
                             div { class: "roi-editor",
@@ -839,7 +1518,7 @@ mod imp {
                     }
 
                     // Right/bottom: OCR source (editable) + streamed translation.
-                    div { class: "translate-result",
+                    div { class: "translate-result", id: "{RESULT_BLOCK}",
                         label { class: "field-label", "识别文本（可编辑纠正）" }
                         textarea {
                             class: "input",
@@ -893,7 +1572,49 @@ mod imp {
                         button { class: "btn small ghost", onclick: do_unload, "卸载模型" }
                     }
                     if !ocr_det_ready {
-                        p { class: "muted hint", "首次使用需下载模型；下载后会做完整性校验，仅从官方源获取，不随安装包分发。" }
+                        p { class: "muted hint", "首次使用需下载模型。" }
+                    }
+                }
+
+                // Fullscreen preview + box-select overlay (tap the preview
+                // image on mobile to open; tap the dimmed surround or 「关闭」
+                // to leave). ROI edits made here flow through the same signal,
+                // so the selection is still there after closing.
+                if fullscreen() {
+                    if let Some(uri) = preview() {
+                        div {
+                            class: "fs-viewer",
+                            onclick: move |_| fullscreen.set(false),
+                            div { class: "fs-bar",
+                                span { class: "fs-hint", "在图上拖动即可框选区域，点空白处关闭" }
+                                div { class: "fs-btns",
+                                    button { class: "btn small", onclick: move |_| rot_ccw(false), "⟲ 左转" }
+                                    button { class: "btn small", onclick: move |_| rot_cw(true), "⟳ 右转" }
+                                    button {
+                                        class: "btn small",
+                                        onclick: move |_| fullscreen.set(false),
+                                        "关闭"
+                                    }
+                                }
+                            }
+                            div {
+                                class: "fs-frame",
+                                onclick: |e| e.stop_propagation(),
+                                onmousedown: on_down,
+                                onmousemove: on_move,
+                                onmouseup: on_up,
+                                onmouseleave: on_up,
+                                img {
+                                    class: "shot-img fs-img",
+                                    src: "{uri}",
+                                    alt: "全屏预览",
+                                    draggable: "false",
+                                }
+                                if !roi_style.is_empty() {
+                                    div { class: "roi", style: "{roi_style}" }
+                                }
+                            }
+                        }
                     }
                 }
 

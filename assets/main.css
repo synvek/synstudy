@@ -342,6 +342,17 @@ h1, h2, h3, h4 { color: var(--text); }
 .btn.small   { padding: 5px 12px; font-size: 16px; line-height: 1; }
 .btn.big     { padding: 12px 26px; font-size: 15px; margin-top: 10px; font-weight: 500; }
 
+/* Android「拍照/相册」：file input 本体即按钮（外观由 .btn 提供；iOS 走原生
+   UIImagePickerController，不用此样式）。appearance:none 抹不掉 UA 固有宽度
+   （约 250px，会撑爆 .translate-actions），故显式定宽；文字用 data-label 绘制。 */
+input.file-btn {
+  -webkit-appearance: none; appearance: none;
+  text-align: center; line-height: 1.4;
+  width: 84px; flex: 0 0 auto;
+}
+input.file-btn::-webkit-file-upload-button { display: none; }
+input.file-btn::before { content: attr(data-label); }
+
 /* ---------------- Dictionary ---------------- */
 .seg {
   display: inline-flex; gap: 3px; padding: 3px; margin-bottom: 14px;
@@ -1012,6 +1023,12 @@ h1, h2, h3, h4 { color: var(--text); }
   align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
 }
 .translate-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* 拍照/相册容器：桌面 display:contents 对父级 flex 透明，保持单行；
+   移动端独立成第一行（flex:1 1 100% 强制换行），其余控件自然落入第二行。 */
+.capture-row { display: contents; }
+:root[data-platform] .capture-row {
+  display: flex; align-items: center; gap: 10px; flex: 1 1 100%;
+}
 .lang-arrow { font-size: 15px; opacity: 0.6; margin: 0 -4px; }
 .translate .status { min-height: 20px; margin: 0 0 14px; font-size: 13px; }
 .select {
@@ -1049,6 +1066,86 @@ h1, h2, h3, h4 { color: var(--text); }
   background: var(--bg); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px;
 }
+/* Touch box-select (mobile JS pointer bridge): the preview image must own
+   its vertical drags, otherwise the page scrolls instead of reporting a ROI.
+   The pane around it still scrolls from every other surface. */
+.translate .shot-img { touch-action: none; }
+/* 移动端：预览图整幅缩放到容器宽度。照片动辄 3000px+ 高，自然尺寸下远超
+   70vh 视口，而图上触摸又全部归框选（touch-action:none）、无法滚动，只能框到
+   可见一角。整页可见后全图都是有效框选面；细节靠双指页面缩放（JS 桥已按
+   rendered/natural 比例换算）与下方数值编辑器兼顾。ROI 覆盖层已改为按自然
+   尺寸的百分比定位（translate.rs），任意缩放比例下都对齐。桌面无
+   data-platform，仍 1:1 自然尺寸渲染。 */
+:root[data-platform] .shot,
+:root[data-platform] .shot-scroll { max-width: 100%; }
+:root[data-platform] .shot-scroll { text-align: center; }
+/* 高度也限制：竖拍照片 3:4，只限宽时限高仍超出 70vh 预览窗；双 max 下
+   浏览器保持宽高比缩到两限之内，整页照片恰好适配预览区。 */
+:root[data-platform] .shot-img { max-width: 100%; max-height: 56vh; width: auto; height: auto; }
+/* ---- 全屏预览/框选（点预览图打开） ----
+   z-index 8000：高于 tabbar(40)，低于 alert-mask(9000) 与 splash(9999)。
+   桌面端图片 1:1，viewer 自身滚动（鼠标框选坐标与图像像素 1:1 的前提不变）；
+   移动端整幅缩放，框选走 JS 触摸桥（按 natural/rendered 比例换算）。
+   img 同时挂 .shot-img：触摸桥的 closest('.shot-img')、touch-action:none
+   与 ROI 百分比覆盖层在全屏下直接复用。点空白处关闭。 */
+.fs-viewer {
+  position: fixed; inset: 0; z-index: 8000;
+  background: rgba(10, 10, 14, .94);
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px;
+  /* 避开刘海/灵动岛与底部 home 指示条：真机上顶栏按钮曾被前置摄像头区域
+     盖住。env(safe-area-inset-*) 在桌面/无缺口设备为 0，不影响布局。 */
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  overflow: auto;
+}
+.fs-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex: 0 0 auto;
+}
+.fs-hint { font-size: 13px; color: #cbd0da; }
+.fs-btns { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.fs-frame {
+  position: relative; line-height: 0; margin: auto; flex: 0 0 auto;
+  cursor: crosshair; user-select: none;
+}
+.fs-img { display: block; border-radius: 6px; -webkit-user-drag: none; user-select: none; }
+:root[data-platform] .fs-img {
+  max-width: 100%;
+  max-height: calc(100vh - 84px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  width: auto; height: auto;
+}
+/* ---- Scan strip (移动端拍照/相册多图扫描) ----
+   Horizontal thumbnail rail between the preview image and the ROI editors:
+   tap a tile to switch the current page, × drops it. Compact 144px thumbs
+   (src/pages/translate.rs to_thumb_uri). */
+.scan-strip {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 10px; overflow-x: auto; padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+.scan-label { flex: 0 0 auto; font-size: 13px; color: var(--muted); font-weight: 600; }
+.scan-tile { position: relative; flex: 0 0 auto; }
+.scan-thumb {
+  display: block; width: 76px; padding: 0; line-height: 0; cursor: pointer;
+  background: var(--bg-soft); border: 2px solid var(--border); border-radius: 8px;
+  overflow: hidden; position: relative;
+}
+.scan-thumb.active { border-color: var(--primary); }
+.scan-thumb:disabled { cursor: default; opacity: .55; }
+.scan-thumb-img { width: 100%; height: auto; display: block; }
+.scan-thumb-no {
+  position: absolute; left: 4px; bottom: 3px; line-height: 1;
+  font-size: 11px; font-weight: 600; color: #fff;
+  background: rgba(15, 18, 32, .65); border-radius: 6px; padding: 2px 5px;
+}
+.scan-x {
+  position: absolute; top: -6px; right: -4px; z-index: 1;
+  width: 22px; height: 22px; padding: 0; line-height: 18px; text-align: center;
+  font-size: 15px; color: #fff; background: rgba(15, 18, 32, .72);
+  border: none; border-radius: 50%; cursor: pointer;
+}
+.scan-x:disabled { opacity: .5; cursor: default; }
 .translate-result {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 16px; display: flex; flex-direction: column; gap: 8px;

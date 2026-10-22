@@ -100,13 +100,14 @@ rfd = { version = "0.15", optional = true, default-features = false }
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
-# iOS native bridges: bundle path lookup only.
-# TTS on iOS currently falls through to the WebView `speechSynthesis` API
-# (works on iOS 17+ WKWebView); a native AVSpeechSynthesizer bridge via
-# `objc2-avf-audio` is tracked as a follow-up.
+# iOS native bridges: bundle path lookup + the native image picker
+# (`UIImagePickerController`): WKWebView refuses the HTML file panel for the
+# custom `dioxus://` scheme origin, so camera/album selection is presented
+# from Rust (see src/platform/ios.rs).
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSURL", "NSBundle"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSURL", "NSBundle", "NSData", "NSDictionary"] }
+objc2-ui-kit = { version = "0.3", features = ["UIImage", "UINavigationController", "UIResponder", "UIViewController"] }
 
 # Android native bridges: `ndk-context` for JVM/AActivity handles, `jni` for
 # driving `android.speech.tts.TextToSpeech` from Rust.
