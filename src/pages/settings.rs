@@ -118,7 +118,7 @@ fn translate_settings_section(mut settings: Signal<Settings>, progress: Progress
                 }
             }
             p { class: "muted hint",
-                "翻译全程本地离线完成：OCR 采用 PaddleOCR（MNN 推理），译文由 HY-MT1.5-1.8B 生成。模型不随安装包分发，首次在「翻译」页按需下载（OCR 约 28 MB、翻译模型约 980 MB）并做完整性校验。低配设备可关闭 GPU 加速或模型常驻以节省显存 / 内存。"
+                "翻译全程本地离线完成：OCR 采用 PaddleOCR（MNN 推理），译文由 HY-MT1.5-1.8B 生成。模型不随安装包分发，首次在「翻译」页按需下载（OCR 约 21 MB、翻译模型约 1.1 GB）并做完整性校验。低配设备可关闭 GPU 加速或模型常驻以节省显存 / 内存。"
             }
         }
     }
@@ -551,12 +551,12 @@ pub fn SettingsPage() -> Element {
 /// the license name, a canonical external link, and the full license text
 /// embedded at compile time from the repo's license files (so users can read
 /// the actual terms in-app, even offline).
-struct LicenseDoc {
-    name: &'static str,
-    usage: &'static str,
-    lic: &'static str,
-    url: &'static str,
-    text: &'static str,
+pub(crate) struct LicenseDoc {
+    pub(crate) name: &'static str,
+    pub(crate) usage: &'static str,
+    pub(crate) lic: &'static str,
+    pub(crate) url: &'static str,
+    pub(crate) text: &'static str,
 }
 
 /// The source-code license(s) Synstudy is distributed under.
@@ -632,9 +632,10 @@ const DATA_LICENSES: &[LicenseDoc] = &[
 ];
 
 /// Components of the optional `translate` feature: statically-linked inference
-/// engines (MNN, llama.cpp) plus models the user downloads at runtime and that
-/// synstudy never redistributes (PaddleOCR, HY-MT). Empty when the feature is
-/// off, so the About → License tab simply omits the whole group.
+/// engines (MNN, llama.cpp) plus models fetched at runtime by the user from
+/// mirrors/official repos we host (PaddleOCR, HY-MT quantized GGUF) — never
+/// bundled in the installer. Empty when the feature is off, so the About →
+/// License tab simply omits the whole group.
 #[cfg(feature = "translate")]
 const TRANSLATE_LICENSES: &[LicenseDoc] = &[
     LicenseDoc {
@@ -660,10 +661,17 @@ const TRANSLATE_LICENSES: &[LicenseDoc] = &[
     },
     LicenseDoc {
         name: "HY-MT1.5-1.8B",
-        usage: "翻译模型权重（运行时下载，不再分发）",
-        lic: "以官方模型卡为准",
-        url: "https://github.com/Tencent-Hunyuan/HY-MT",
+        usage: "翻译模型权重（运行时下载，非腾讯官方原始文件，见 NOTICE）",
+        lic: "腾讯 HY 社区许可协议",
+        url: "https://github.com/Tencent-Hunyuan/Hy-MT",
         text: include_str!("../../license/HY-MT-NOTICE.txt"),
+    },
+    LicenseDoc {
+        name: "HY-MT 许可协议全文",
+        usage: "下载翻译模型前须同意；翻译页「模型」区亦可展开阅读",
+        lic: "Tencent HY Community License",
+        url: "https://github.com/Tencent-Hunyuan/Hy-MT/blob/main/License.txt",
+        text: include_str!("../../license/HY-MT-LICENSE.txt"),
     },
 ];
 
@@ -675,7 +683,7 @@ const TRANSLATE_LICENSES: &[LicenseDoc] = &[];
 /// license page. `open` is the shared single-open state across all groups.
 /// A plain fn (not a component) so the `Signal` can be passed by value without
 /// pulling in component-props trait bounds.
-fn license_docs_view(docs: &'static [LicenseDoc], open: Signal<Option<&'static str>>) -> Element {
+pub(crate) fn license_docs_view(docs: &'static [LicenseDoc], open: Signal<Option<&'static str>>) -> Element {
     let mut open = open;
     rsx! {
         div { class: "about-srcs",
@@ -843,7 +851,7 @@ fn AboutOverlay(
                         h3 { "网络行为" }
                         ul { class: "about-list",
                             li { "核心学习与词典功能完全离线，无需任何网络请求。" }
-                            li { "翻译模型：首次使用翻译功能时，从 ModelScope 下行获取公开的模型权重文件（PaddleOCR 识别模型与 HY-MT 翻译模型），不携带任何个人、照片或文本数据，下载文件均按内置 SHA-256 校验完整性；模型就绪后离线运行。" }
+                            li { "翻译模型：首次使用翻译功能时——先阅读并同意《腾讯 HY 社区许可协议》，再从我们托管的 ModelScope 镜像下行获取模型权重文件（PaddleOCR 识别模型与 HY-MT 翻译模型），不携带任何个人、照片或文本数据，下载文件均按内置 SHA-256 校验完整性；模型就绪后离线运行。" }
                             li { "本地推理：文字识别与机器翻译均在设备端完成，照片与文本不会被发送到任何服务器。" }
                             li { "应用内指向项目主页与许可证页面的链接为普通超链接，由系统浏览器打开；应用自身不向你访问的第三方网站传输任何数据。" }
                         }

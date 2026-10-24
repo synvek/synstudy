@@ -66,13 +66,16 @@ Tatoeba 的中文译文以繁体为主，构建时使用 OpenCC 的 `TSCharacter
 | [MNN](https://github.com/alibaba/MNN) | OCR 推理引擎（经 `rust-paddle-ocr` 静态链接） | Apache-2.0 | [`MNN-NOTICE.txt`](./MNN-NOTICE.txt) |
 | [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) | PP-OCRv5 mobile 检测 / 识别模型（运行时下载，约 28 MB） | Apache-2.0 | [`PaddleOCR-NOTICE.txt`](./PaddleOCR-NOTICE.txt) |
 | [llama.cpp](https://github.com/ggerganov/llama.cpp) | 翻译模型推理引擎（经 `llama-cpp-2` 静态链接） | MIT | [`llama-cpp-NOTICE.txt`](./llama-cpp-NOTICE.txt) |
-| [HY-MT1.5-1.8B](https://github.com/Tencent-Hunyuan/HY-MT) | 翻译模型权重（运行时由用户从官方源下载，约 980 MB，不再分发） | 以官方模型卡为准（腾讯混元社区许可） | [`HY-MT-NOTICE.txt`](./HY-MT-NOTICE.txt) |
+| [HY-MT1.5-1.8B](https://github.com/Tencent-Hunyuan/Hy-MT) | 翻译模型权重（运行时由用户从我们托管的 ModelScope 镜像按需下载量化版，约 1.1 GB，不随安装包分发） | 腾讯 HY 社区许可协议（**非** MIT/Apache，排除欧盟/英国/韩国） | [`HY-MT-LICENSE.txt`](./HY-MT-LICENSE.txt) / [`HY-MT-NOTICE.txt`](./HY-MT-NOTICE.txt) |
 
 - **代码组件（MNN / llama.cpp）**：Apache-2.0 与 MIT 均允许自由使用、修改与再
   分发（含商用），保留版权与许可声明即可；完整条款见根目录
   `LICENSE-APACHE.txt` / `LICENSE-MIT.txt`。
-- **模型权重（PaddleOCR / HY-MT）**：**不随包分发**，仅由用户在运行时从官方源
-  下载，规避再分发合规风险。HY-MT 的使用须遵守腾讯混元官方许可条款（可能含
-  商用规模阈值等限制），下载前请在官方模型卡阅读并同意。
+- **模型权重（PaddleOCR / HY-MT）**：**不随包分发**，由用户在运行时按需从
+  官方源（PaddleOCR）或本方托管镜像（HY-MT 量化版）下载。HY-MT 适用
+  《腾讯 HY 社区许可协议》（条款全文 `HY-MT-LICENSE.txt`，非标准开源许可：
+  授权地域排除欧盟/英国/韩国、MAU 超 1 亿须另行向腾讯申请授权、不得用输出
+  改进其他 AI 模型）；应用内首次下载翻译模型前强制展示要点并取得点击同意，
+  协议全文亦可在翻译页「模型」区与「关于 → 版权与许可」内离线查阅。
 - 应用内「设置 → 关于 → 版权与许可」在启用翻译功能时会额外列出上述组件及其
   官方链接。

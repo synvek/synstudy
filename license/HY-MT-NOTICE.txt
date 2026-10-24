@@ -4,32 +4,61 @@ HY-MT1.5-1.8B — 腾讯混元翻译模型
 用途（本项目）
 --------------
 截图 / 拍照翻译功能使用腾讯混元 HY-MT1.5-1.8B 多语言神经机器翻译模型的
-主线 llama.cpp 兼容量化权重（GGUF，Q4_K_M，约 980 MB），在本地经
-llama.cpp 推理生成译文。
+Q4_K_M 量化 GGUF 版本（约 1.1 GB），在本地经主线 llama.cpp 推理生成译文。
 
 模型分发方式（重要）
---------------------
-synstudy **不打包、不再分发**任何 HY-MT 模型权重。模型由用户在首次使用
-「翻译」功能时，通过应用内的下载入口，直接从腾讯混元官方渠道
-（Hugging Face / ModelScope）按需获取，下载后做完整性校验，仅存放在本地
-应用数据目录。因此本软件的分发不触发该模型许可中关于「再分发」的条款；
-用户对模型的使用须自行遵守官方许可。
+------------------
+Synstudy **不将任何模型权重打包进安装包**。首次使用「翻译」功能时，由用户
+在应用内点「下载」，从我们托管的 ModelScope 仓库
+（synvek/HY-MT1.5-1.8B-GGUF）按需获取该量化文件，下载过程按内置 SHA-256
+校验完整性，仅存放在本地应用数据目录。
+此处说明事实出处：该文件**不是腾讯官方发布的原始文件**，而是我们基于官方
+开源权重（见下方 Hugging Face 链接）转换制作的 Q4_K_M 量化版本——官方
+Hugging Face / ModelScope 仓库仅提供 safetensors / FP8 / GPTQ 格式，另有
+腾讯 AngelSlim 团队发布的 2bit / 1.25bit GGUF，但两者均依赖尚未合入主线
+llama.cpp 的定制 kernel，无法在本应用所用主线推理引擎上运行。Synstudy 是
+该镜像的托管方而非模型权利人，许可权利义务以下方官方协议为准。
 
 版权与许可
 ----------
-HY-MT1.5-1.8B 由腾讯混元（Tencent Hunyuan）团队发布。其许可以官方模型卡 /
-仓库标注为准（腾讯混元系列模型通常采用《腾讯混元社区许可协议》，可能包含
-商用规模阈值、禁止使用输出训练竞争模型等条款）。**在下载与使用前，请务必
-前往官方页面阅读并同意其许可条款。**
+HY-MT1.5-1.8B 及其衍生量化版本适用《TENCENT HY COMMUNITY LICENSE AGREEMENT》
+（腾讯 HY 社区许可协议，2025-12-30 版）。**它不是 MIT / Apache-2.0 之类的
+标准开源许可。** 条款全文见本仓库 license/HY-MT-LICENSE.txt（应用内「设置
+→ 关于 → 版权与许可」亦可直接查看全文）。与本项目相关的关键点：
+
+1. 地域范围：协议明确**不适用于欧盟、英国、韩国**（"Territory" 定义见协议
+   §1(l)，使用限制见 §5(c)）。
+2. 使用与商用：在授权地域内可免费使用、修改、量化并集成到自有产品（含商
+   用），月活跃用户超过 1 亿须另行向腾讯申请授权（§4）；使用还须遵守其
+   Acceptable Use Policy（§5(a) 引入）。
+3. 输出限制：不得以 HY-MT 的输出训练 / 改进其他竞争 AI 模型（§5(b)）；模
+   型输出本身归使用者负责（§6(d)）。
+4. 商标：本协议不授予任何 Tencent / Hunyuan 商标许可（§6(b)）。
+5. 点击下载即视为你已阅读并同意该协议（协议以点击接受即生效）。
+
+法定 NOTICE 原文（协议 §3(d) 要求随分发附带的声明）
+------------------------------------------------
+依据《腾讯 HY 社区许可协议》§3(d)，向第三方分发本模型（Hosted Service 方式
+除外）必须随附以下法定 NOTICE。Synstudy 托管的量化镜像下载即适用本条，故
+逐字收录如下（英文原文，具法定效力，请勿改写）：
+
+    Tencent HY is licensed under the Tencent HY Community License Agreement,
+    Copyright © 2025 Tencent. All Rights Reserved. The trademark rights of
+    “Tencent HY” are owned by Tencent or its affiliate.
+
+同时按其要求显著披露：本翻译功能与模型镜像的实际提供方为 Synstudy，与腾讯
+无隶属、关联、赞助或背书关系。
 
 官方来源
 --------
-GitHub：      https://github.com/Tencent-Hunyuan/HY-MT
-Hugging Face：https://huggingface.co/tencent/HY-MT1.5-1.8B
-ModelScope：  https://modelscope.cn/models/Tencent-Hunyuan/HY-MT1.5-1.8B
+GitHub（含 LICENSE 全文）：https://github.com/Tencent-Hunyuan/Hy-MT
+Hugging Face（官方权重）：https://huggingface.co/tencent/HY-MT1.5-1.8B
+ModelScope（官方权重）：  https://modelscope.cn/models/Tencent-Hunyuan/HY-MT1.5-1.8B
 
 说明
 ----
-本文件仅为归属与合规提示（notice），不构成对模型许可条款的转述或替代。
-synstudy 与腾讯混元无隶属或背书关系；模型版权归原作者 / 团队所有。许可
-条款如有更新，一律以上述官方页面为准。
+本文件仅为归属与合规提示（notice），不构成对许可条款的转述或替代；具有法
+律效力的文本以上述官方仓库的 License.txt 为准。Synstudy 与腾讯无隶属或背
+书关系；如你希望自行从官方渠道获取原始权重，亦可按上方链接下载后替换本地
+models/mt/ 目录下的文件（文件名需保持一致，或自行转换）。许可条款如有更
+新，一律以官方页面为准。

@@ -8,7 +8,10 @@
 //! from the UI thread (see `translate::mod`).
 //!
 //! NOTE ON URLS / HASHES: each file currently has a single ModelScope source
-//! (`synvek/*` repos, uploaded by us — the authoritative provenance). Every
+//! (`synvek/*` repos, uploaded by us — the authoritative provenance for these
+//! exact artifacts; for MT_MODEL the file is our own mainline-llama.cpp Q4_K_M
+//! quant of the official tencent/HY-MT1.5-1.8B weights, and the HY Community
+//! License plus runtime consent gate apply — see license/HY-MT-NOTICE.txt). Every
 //! `sha256` is the digest computed from a verified download, so each fetch is
 //! integrity-checked against it (see [`download_one`]). Additional mirrors are
 //! intentionally not wired in yet; they will be added once trusted alternatives
@@ -77,6 +80,10 @@ pub const OCR_KEYS: ModelFile = ModelFile {
 
 /// Translation model: HY-MT1.5-1.8B, mainline-llama.cpp compatible Q4_K_M GGUF.
 /// ~1.08 GB (1,133,080,224 bytes). Served from our `synvek` ModelScope repo.
+/// Provenance: we converted this quant from the official tencent weights — the
+/// official AngelSlim GGUFs need unmerged llama.cpp kernels. Download is
+/// gated behind explicit acceptance of the Tencent HY Community License (see
+/// `pages/translate.rs`; full terms in `license/HY-MT-LICENSE.txt`).
 pub const MT_MODEL: ModelFile = ModelFile {
     name: "hy-mt1.5-1.8b-q4_k_m.gguf",
     subdir: "mt",

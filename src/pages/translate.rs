@@ -72,19 +72,29 @@ mod imp {
     ///
     /// `scroll_to` names the DOM id to bring into view after the user confirms,
     /// but only on mobile: on desktop the model panel needs no hunting.
+    /// `license_ack` marks the consent prompt shown before the HY-MT model
+    /// download: confirming it persists the acceptance and closes (the user
+    /// then triggers the download themselves).
     #[derive(Clone)]
     struct Alert {
         message: String,
         scroll_to: Option<&'static str>,
+        license_ack: bool,
     }
 
     impl Ui {
         /// Report `msg` inline (status line) *and* as a modal.
-        fn raise(&mut self, msg: &str, scroll_to: Option<&'static str>) {
+        fn raise(
+            &mut self,
+            msg: &str,
+            scroll_to: Option<&'static str>,
+            license_ack: bool,
+        ) {
             self.status = msg.to_string();
             self.alert = Some(Alert {
                 message: msg.to_string(),
                 scroll_to,
+                license_ack,
             });
         }
     }
@@ -97,6 +107,21 @@ mod imp {
     /// DOM id of the OCR/译文 result block — the mobile auto-scroll target
     /// when a translation finishes. Keep in sync with the rsx below.
     const RESULT_BLOCK: &str = "translate-result";
+
+    /// Progress-repo KV key recording that the user accepted the Tencent HY
+    /// Community License before the first HY-MT model download (persisted via
+    /// `ProgressRepo`, the project convention for simple scalar UI state).
+    const MT_LICENSE_KEY: &str = "mt_license_accepted";
+
+    /// HY-MT 社区许可协议全文，以设置页同款手风琴在「模型」区可离线展开阅读
+    /// （文本编译期嵌入；条款同时随包归档于 license/HY-MT-LICENSE.txt）。
+    const MT_LICENSE_DOCS: &[crate::pages::settings::LicenseDoc] = &[crate::pages::settings::LicenseDoc {
+        name: "腾讯 HY 社区许可协议（HY-MT1.5-1.8B）",
+        usage: "下载即须同意；点击接受即生效",
+        lic: "Tencent HY Community License",
+        url: "https://github.com/Tencent-Hunyuan/Hy-MT/blob/main/License.txt",
+        text: include_str!("../../license/HY-MT-LICENSE.txt"),
+    }];
 
     /// Outcome of a background capture / file-dialog / region-grab thread, pushed
     /// onto a shared queue and drained by the UI poll loop (signals can only be
@@ -395,6 +420,10 @@ mod imp {
         // `PageStore` (app-root signals), not in this scope.
         let store: PageStore = use_context();
         let mut ui = store.ui;
+        // HY-MT 许可同意标记：首次渲染从进度库 KV 读一次，之后只在确认弹窗里写。
+        let mut mt_ok = use_signal(|| progress.get_setting(MT_LICENSE_KEY).as_deref() == Some("1"));
+        // 「查看许可全文」手风琴的展开态（仅本页面局部，无需持久化）。
+        let mt_license_open = use_signal(|| Option::<&'static str>::None);
         let mut target = use_signal(|| settings.read().translate_target_lang.clone());
         let mut src = use_signal(|| settings.read().translate_src_lang.clone());
         let preview = store.preview;
@@ -913,6 +942,7 @@ mod imp {
                         u.raise(
                             "还未下载 OCR 模型（约 21 MB），无法识别图片文字。请在下方「模型」区下载后重试。",
                             Some(DL_ROW_OCR),
+                            false,
                         )
                     });
                     return;
@@ -922,6 +952,7 @@ mod imp {
                         u.raise(
                             "还未下载翻译模型 HY-MT1.5-1.8B（约 1.1 GB），无法翻译。请在下方「模型」区下载后重试。",
                             Some(DL_ROW_MT),
+                            false,
                         )
                     });
                     return;
@@ -1069,6 +1100,7 @@ mod imp {
                     u.raise(
                         "还未下载 OCR 模型（约 21 MB），无法识别图片文字。请在下方「模型」区下载后重试。",
                         Some(DL_ROW_OCR),
+                        false,
                     )
                 });
                 return;
@@ -1078,6 +1110,7 @@ mod imp {
                     u.raise(
                         "还未下载翻译模型 HY-MT1.5-1.8B（约 1.1 GB），无法翻译。请在下方「模型」区下载后重试。",
                         Some(DL_ROW_MT),
+                        false,
                     )
                 });
                 return;
@@ -1120,6 +1153,7 @@ mod imp {
                     u.raise(
                         "还未下载翻译模型 HY-MT1.5-1.8B（约 1.1 GB），无法翻译。请在下方「模型」区下载后重试。",
                         Some(DL_ROW_MT),
+                        false,
                     )
                 });
                 return;
@@ -1131,6 +1165,7 @@ mod imp {
                     u.raise(
                         "识别文本为空：请先截屏识别，或在上方文本框直接输入文字。",
                         None,
+                        false,
                     )
                 });
                 return;
@@ -1152,7 +1187,27 @@ mod imp {
         };
 
         let do_download_ocr = move |_| engine().send(Command::DownloadOcr);
-        let do_download_mt = move |_| engine().send(Command::DownloadMt);
+        // HY-MT 权重适用《腾讯 HY 社区许可协议》（点击接受即生效），首次下载前
+        // 必须先展示条款要点并取得明确同意；同意状态持久化，之后不再重复询问。
+        // 弹窗内逐字列出协议 §3(d) 要求随分发附带的法定 NOTICE，并按其要求披露
+        // 实际提供方为 Synstudy（与 license/HY-MT-NOTICE.txt 保持一致）。
+        let do_download_mt = move |_| {
+            if !*mt_ok.peek() {
+                ui.with_mut(|u| {
+                    u.raise(
+                        "\u{300c}翻译模型 HY-MT1.5-1.8B\u{300d}适用《腾讯 HY 社区许可协议》（Tencent HY Community License Agreement），并非 MIT / Apache 等标准开源许可。\n\
+                         完整条款可在下方「模型」区的「查看许可全文」展开阅读，或访问官方仓库查看。\n\
+                         要点：本应用面向授权地域（不含欧盟 / 英国 / 韩国）内的简体中文用户；月活跃用户超 1 亿须另行向腾讯申请授权；不得将本应用置于腾讯名义或造成官方关联印象；下载源为 Synstudy 托管的 synvek/HY-MT1.5-1.8B-GGUF 量化镜像（非腾讯官方原始文件）。\n\
+                         协议 §3(d) 法定声明：Tencent HY is licensed under the Tencent HY Community License Agreement, Copyright © 2025 Tencent. All Rights Reserved. The trademark rights of “Tencent HY” are owned by Tencent or its affiliate. 本功能与模型镜像的实际提供方为 Synstudy，与腾讯无隶属、关联、赞助或背书关系。\n\
+                         点击「同意并继续」即表示你已阅读并同意该协议。",
+                        None,
+                        true,
+                    )
+                });
+                return;
+            }
+            engine().send(Command::DownloadMt);
+        };
         let do_unload = move |_| engine().send(Command::Unload);
 
         let do_copy = move |_| {
@@ -1381,9 +1436,17 @@ mod imp {
             Some(alert) => {
                 let message = alert.message;
                 let scroll_target = alert.scroll_to;
+                let license_ack = alert.license_ack;
                 // Tapping the dimmed backdrop just dismisses — no navigation.
                 let close = move |_| ui.with_mut(|u| u.alert = None);
+                // On the consent alert, confirming *is* the acceptance: persist
+                // first, then close; the user then taps 「下载」 themselves (the
+                // gate now passes). Ordinary alerts also close + scroll.
                 let confirm = move |_| {
+                    if license_ack {
+                        progress.set_setting(MT_LICENSE_KEY, "1");
+                        mt_ok.set(true);
+                    }
                     ui.with_mut(|u| u.alert = None);
                     if cfg!(any(target_os = "ios", target_os = "android")) {
                         if let Some(id) = scroll_target {
@@ -1393,14 +1456,23 @@ mod imp {
                         }
                     }
                 };
+                // rsx! children cannot hold `let` bindings, so the button choice
+                // is computed outside the tree.
+                let alert_btn = if license_ack {
+                    rsx! { button { class: "btn primary", onclick: confirm, "同意并继续" } }
+                } else {
+                    rsx! {
+                        button { class: "btn primary", onclick: confirm,
+                            if cfg!(any(target_os = "ios", target_os = "android")) { "去下载" } else { "知道了" }
+                        }
+                    }
+                };
                 rsx! {
                     div { class: "alert-mask", onclick: close,
                         div { class: "alert-card",
                             p { class: "alert-msg", "{message}" }
                             div { class: "alert-actions",
-                                button { class: "btn primary", onclick: confirm,
-                                    if cfg!(any(target_os = "ios", target_os = "android")) { "去下载" } else { "知道了" }
-                                }
+                                {alert_btn}
                             }
                         }
                     }
@@ -1560,13 +1632,16 @@ mod imp {
                         }
                     }
                     div { class: "setting-row", id: "{DL_ROW_MT}",
-                        label { "翻译模型 HY-MT1.5-1.8B（约 1.1 GB）" }
+                        label { "翻译模型 HY-MT1.5-1.8B（约 1.1 GB，Synstudy 托管的量化镜像）" }
                         if mt_ready {
                             span { class: "ok", "已就绪" }
                         } else {
                             button { class: "btn small", onclick: do_download_mt, "下载" }
                         }
                     }
+                    // 下载前必读的社区许可协议全文：就地可展开，与关于页同款组件。
+                    div { class: "muted hint", "下载前请阅读并同意适用许可（腾讯 HY 社区许可协议，非标准开源许可）。" }
+                    {crate::pages::settings::license_docs_view(MT_LICENSE_DOCS, mt_license_open)}
                     div { class: "setting-row",
                         label { "内存" }
                         button { class: "btn small ghost", onclick: do_unload, "卸载模型" }
